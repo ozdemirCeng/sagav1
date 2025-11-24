@@ -1,14 +1,42 @@
 ﻿using System.ComponentModel.DataAnnotations.Schema;
+
 namespace Saga.Server.Models
 {
     [Table("yorumlar")]
     public class Yorum
     {
-        [Column("id")] public long Id { get; set; }
-        [Column("kullanici_id")] public Guid KullaniciId { get; set; }
+        [Column("id")]
+        public long Id { get; set; }
+
+        [Column("kullanici_id")]
+        public Guid KullaniciId { get; set; }
         public Kullanici Kullanici { get; set; } = null!;
-        [Column("icerik_id")] public long IcerikId { get; set; }
-        [Column("icerik")] public string IcerikMetni { get; set; } = null!;
-        [Column("olusturulma_zamani")] public DateTime OlusturulmaZamani { get; set; }
+
+        [Column("icerik_id")]
+        public long IcerikId { get; set; }
+
+        [Column("baslik")]
+        public string? Baslik { get; set; }
+
+        [Column("icerik")]
+        public string IcerikMetni { get; set; } = null!;
+
+        [Column("puan")]
+        public decimal? Puan { get; set; }
+
+        [Column("begeni_sayisi")]
+        public int BegeniSayisi { get; set; }
+
+        [Column("spoiler_iceriyor")]
+        public bool SpoilerIceriyor { get; set; }
+
+        [Column("silindi")]
+        public bool Silindi { get; set; }
+
+        [Column("olusturulma_zamani")]
+        public DateTime OlusturulmaZamani { get; set; }
+
+        [Column("guncelleme_zamani")]
+        public DateTime? GuncellemeZamani { get; set; }
     }
 }

@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Saga.Server.Data;
 using Saga.Server.Models;
 
-namespace ReelPage.Server.Controllers
+namespace Saga.Server.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]

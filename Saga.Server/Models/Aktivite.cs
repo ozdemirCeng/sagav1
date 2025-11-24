@@ -15,14 +15,25 @@ namespace Saga.Server.Models
         public Kullanici Kullanici { get; set; } = null!;
 
         [Column("aktivite_turu")]
-        public string AktiviteTuru { get; set; } = null!; // puanlama, yorum
+        public AktiviteTuru AktiviteTuru { get; set; }
 
         [Column("icerik_id")]
         public long? IcerikId { get; set; }
 
-        // JSONB verisi (Film adı, poster vs. burada saklı)
+        [Column("puanlama_id")]
+        public long? PuanlamaId { get; set; }
+
+        [Column("yorum_id")]
+        public long? YorumId { get; set; }
+
+        [Column("liste_id")]
+        public long? ListeId { get; set; }
+
         [Column("veri", TypeName = "jsonb")]
         public string Veri { get; set; } = "{}";
+
+        [Column("silindi")]
+        public bool Silindi { get; set; }
 
         [Column("olusturulma_zamani")]
         public DateTime OlusturulmaZamani { get; set; }

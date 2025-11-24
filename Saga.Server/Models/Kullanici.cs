@@ -25,10 +25,25 @@ namespace Saga.Server.Models
         [Column("avatar_url")]
         public string? AvatarUrl { get; set; }
 
-        [Column("rol")] // Enum string olarak tutulacak
-        public string Rol { get; set; } = "kullanici";
+        [Column("rol")]
+        public KullaniciRol Rol { get; set; } = KullaniciRol.kullanici;
+
+        [Column("aktif")]
+        public bool Aktif { get; set; } = true;
+
+        [Column("silindi")]
+        public bool Silindi { get; set; } = false;
+
+        [Column("son_giris_zamani")]
+        public DateTime? SonGirisZamani { get; set; }
+
+        [Column("giris_sayisi")]
+        public int GirisSayisi { get; set; }
 
         [Column("olusturulma_zamani")]
         public DateTime OlusturulmaZamani { get; set; }
+
+        [Column("guncelleme_zamani")]
+        public DateTime GuncellemeZamani { get; set; }
     }
 }
