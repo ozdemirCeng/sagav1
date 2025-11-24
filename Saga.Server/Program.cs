@@ -1,11 +1,11 @@
 ﻿using Microsoft.EntityFrameworkCore;
-using ReelPage.Server.Data;
+using Saga.Server.Data;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // 1. Veritabanı Servisini Ekle
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-builder.Services.AddDbContext<ReelPageDbContext>(options =>
+builder.Services.AddDbContext<SagaDbContext>(options =>
     options.UseNpgsql(connectionString));
 
 // 2. Controller'ları Ekle
@@ -18,7 +18,7 @@ var app = builder.Build();
 // 3. Veritabanı Bağlantı Testi (Uygulama açılırken kontrol eder)
 using (var scope = app.Services.CreateScope())
 {
-    var db = scope.ServiceProvider.GetRequiredService<ReelPageDbContext>();
+    var db = scope.ServiceProvider.GetRequiredService<SagaDbContext>();
     try
     {
         if (db.Database.CanConnect())

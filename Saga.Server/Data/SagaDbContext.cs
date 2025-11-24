@@ -1,11 +1,11 @@
 ﻿using Microsoft.EntityFrameworkCore;
-using ReelPage.Server.Models;
+using Saga.Server.Models;
 
-namespace ReelPage.Server.Data
+namespace Saga.Server.Data
 {
-    public class ReelPageDbContext : DbContext
+    public class SagaDbContext : DbContext
     {
-        public ReelPageDbContext(DbContextOptions<ReelPageDbContext> options) : base(options)
+        public SagaDbContext(DbContextOptions<SagaDbContext> options) : base(options)
         {
             // PostgreSQL tarih sorununu çözer (UTC kullanımı)
             AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
