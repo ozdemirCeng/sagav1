@@ -45,5 +45,12 @@ namespace Saga.Server.Models
 
         [Column("guncelleme_zamani")]
         public DateTime GuncellemeZamani { get; set; }
+
+        // Navigation properties
+        public ICollection<Takip> TakipEttikleri { get; set; } = new List<Takip>();
+        public ICollection<Takip> TakipEdenler { get; set; } = new List<Takip>();
+        public ICollection<Puanlama> Puanlamalari { get; set; } = new List<Puanlama>();
+        public ICollection<Yorum> Yorumlari { get; set; } = new List<Yorum>();
+        public ICollection<Liste> Listeleri { get; set; } = new List<Liste>();
     }
 }
