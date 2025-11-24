@@ -47,8 +47,8 @@ namespace Saga.Server.Models
         public DateTime GuncellemeZamani { get; set; }
 
         // Navigation properties
-        public ICollection<Takip> TakipEttikleri { get; set; } = new List<Takip>();
-        public ICollection<Takip> TakipEdenler { get; set; } = new List<Takip>();
+        public ICollection<Takip> Takipler { get; set; } = new List<Takip>(); // Takip ettikleri
+        public ICollection<Takip> TakipEdenler { get; set; } = new List<Takip>(); // Onu takip edenler
         public ICollection<Puanlama> Puanlamalari { get; set; } = new List<Puanlama>();
         public ICollection<Yorum> Yorumlari { get; set; } = new List<Yorum>();
         public ICollection<Liste> Listeleri { get; set; } = new List<Liste>();

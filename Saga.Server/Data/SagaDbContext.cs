@@ -74,6 +74,22 @@ namespace Saga.Server.Data
             });
 
             // 4. İLİŞKİLER (Relationships)
+            
+            // Takip ilişkisi (self-referencing many-to-many)
+            // TakipEden -> Takipler (kimin takip listesi)
+            // TakipEdilen -> TakipEdenler (kimin takipçileri)
+            modelBuilder.Entity<Kullanici>()
+                .HasMany(k => k.Takipler)
+                .WithOne(t => t.TakipEden)
+                .HasForeignKey(t => t.TakipEdenId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<Kullanici>()
+                .HasMany(k => k.TakipEdenler)
+                .WithOne(t => t.TakipEdilen)
+                .HasForeignKey(t => t.TakipEdilenId)
+                .OnDelete(DeleteBehavior.Restrict);
+
             modelBuilder.Entity<Aktivite>()
                 .HasOne(a => a.Kullanici)
                 .WithMany()

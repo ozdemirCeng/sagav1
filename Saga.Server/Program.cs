@@ -98,6 +98,8 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
-app.MapFallbackToFile("/index.html");
+
+// SPA fallback disabled for API-only testing
+// app.MapFallbackToFile("/index.html");
 
 app.Run();
