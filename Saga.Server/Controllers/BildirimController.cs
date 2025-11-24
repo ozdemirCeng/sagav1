@@ -2,15 +2,15 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Saga.Server.Data;
+using Saga.Server.DTOs;
 using Saga.Server.Models;
-using System.Security.Claims;
 
 namespace Saga.Server.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
     [Authorize]
-    public class BildirimController : ControllerBase
+    public class BildirimController : BaseApiController
     {
         private readonly SagaDbContext _context;
         private readonly ILogger<BildirimController> _logger;
@@ -21,19 +21,9 @@ namespace Saga.Server.Controllers
             _logger = logger;
         }
 
-        private Guid GetCurrentUserId()
-        {
-            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? User.FindFirst("sub")?.Value;
-            if (string.IsNullOrEmpty(userIdClaim))
-            {
-                throw new UnauthorizedAccessException("Kullanıcı ID'si bulunamadı");
-            }
-            return Guid.Parse(userIdClaim);
-        }
-
         // GET: api/bildirim
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<object>>> GetBildirimler(
+    public async Task<ActionResult<BildirimListResponseDto>> GetBildirimler(
             [FromQuery] int sayfa = 1,
             [FromQuery] int limit = 20)
         {
@@ -47,35 +37,36 @@ namespace Saga.Server.Controllers
                     .Skip((sayfa - 1) * limit)
                     .Take(limit)
                     .Include(b => b.Gonderen)
-                    .Select(b => new
-                    {
-                        b.Id,
-                        b.Tip,
-                        b.Baslik,
-                        b.Mesaj,
-                        b.LinkUrl,
-                        b.Okundu,
-                        b.OlusturulmaZamani,
-                        Gonderen = b.Gonderen == null ? null : new
-                        {
-                            b.Gonderen.Id,
-                            b.Gonderen.KullaniciAdi,
-                            b.Gonderen.AvatarUrl
-                        }
-                    })
                     .ToListAsync();
 
                 var toplamSayisi = await _context.Bildirimler
                     .Where(b => b.AliciId == kullaniciId && !b.Silindi)
                     .CountAsync();
 
-                return Ok(new
+                var response = new BildirimListResponseDto
                 {
-                    bildirimler,
-                    toplamSayisi,
-                    sayfa,
-                    toplamSayfa = (int)Math.Ceiling(toplamSayisi / (double)limit)
-                });
+                    Bildirimler = bildirimler.Select(b => new BildirimDto
+                    {
+                        Id = b.Id,
+                        Tip = b.Tip,
+                        Baslik = b.Baslik,
+                        Mesaj = b.Mesaj,
+                        LinkUrl = b.LinkUrl,
+                        Okundu = b.Okundu,
+                        OlusturulmaZamani = b.OlusturulmaZamani,
+                        Gonderen = b.Gonderen == null ? null : new BildirimKullaniciDto
+                        {
+                            Id = b.Gonderen.Id,
+                            KullaniciAdi = b.Gonderen.KullaniciAdi,
+                            AvatarUrl = b.Gonderen.AvatarUrl
+                        }
+                    }).ToList(),
+                    ToplamSayisi = toplamSayisi,
+                    Sayfa = sayfa,
+                    ToplamSayfa = (int)Math.Ceiling(toplamSayisi / (double)limit)
+                };
+
+                return Ok(response);
             }
             catch (UnauthorizedAccessException)
             {
@@ -90,7 +81,7 @@ namespace Saga.Server.Controllers
 
         // GET: api/bildirim/okunmamis
         [HttpGet("okunmamis")]
-        public async Task<ActionResult<IEnumerable<object>>> GetOkunmamisBildirimler()
+    public async Task<ActionResult<OkunmamisBildirimlerResponseDto>> GetOkunmamisBildirimler()
         {
             try
             {
@@ -100,30 +91,32 @@ namespace Saga.Server.Controllers
                     .Where(b => b.AliciId == kullaniciId && !b.Okundu && !b.Silindi)
                     .OrderByDescending(b => b.OlusturulmaZamani)
                     .Include(b => b.Gonderen)
-                    .Select(b => new
-                    {
-                        b.Id,
-                        b.Tip,
-                        b.Baslik,
-                        b.Mesaj,
-                        b.LinkUrl,
-                        b.OlusturulmaZamani,
-                        Gonderen = b.Gonderen == null ? null : new
-                        {
-                            b.Gonderen.Id,
-                            b.Gonderen.KullaniciAdi,
-                            b.Gonderen.AvatarUrl
-                        }
-                    })
                     .ToListAsync();
 
                 var okunmamisSayisi = bildirimler.Count;
 
-                return Ok(new
+                var response = new OkunmamisBildirimlerResponseDto
                 {
-                    bildirimler,
-                    okunmamisSayisi
-                });
+                    Bildirimler = bildirimler.Select(b => new BildirimDto
+                    {
+                        Id = b.Id,
+                        Tip = b.Tip,
+                        Baslik = b.Baslik,
+                        Mesaj = b.Mesaj,
+                        LinkUrl = b.LinkUrl,
+                        Okundu = b.Okundu,
+                        OlusturulmaZamani = b.OlusturulmaZamani,
+                        Gonderen = b.Gonderen == null ? null : new BildirimKullaniciDto
+                        {
+                            Id = b.Gonderen.Id,
+                            KullaniciAdi = b.Gonderen.KullaniciAdi,
+                            AvatarUrl = b.Gonderen.AvatarUrl
+                        }
+                    }).ToList(),
+                    OkunmamisSayisi = okunmamisSayisi
+                };
+
+                return Ok(response);
             }
             catch (UnauthorizedAccessException)
             {
@@ -138,7 +131,7 @@ namespace Saga.Server.Controllers
 
         // GET: api/bildirim/sayisi
         [HttpGet("sayisi")]
-        public async Task<ActionResult<object>> GetOkunmamisSayisi()
+    public async Task<ActionResult<OkunmamisSayisiDto>> GetOkunmamisSayisi()
         {
             try
             {
@@ -148,7 +141,7 @@ namespace Saga.Server.Controllers
                     .Where(b => b.AliciId == kullaniciId && !b.Okundu && !b.Silindi)
                     .CountAsync();
 
-                return Ok(new { okunmamisSayisi });
+                return Ok(new OkunmamisSayisiDto { OkunmamisSayisi = okunmamisSayisi });
             }
             catch (UnauthorizedAccessException)
             {
@@ -163,7 +156,7 @@ namespace Saga.Server.Controllers
 
         // POST: api/bildirim/{id}/okundu
         [HttpPost("{id}/okundu")]
-        public async Task<ActionResult> BildirimeOkunduIsaretle(long id)
+    public async Task<ActionResult<BildirimIslemSonucDto>> BildirimeOkunduIsaretle(long id)
         {
             try
             {
@@ -180,7 +173,7 @@ namespace Saga.Server.Controllers
                 bildirim.Okundu = true;
                 await _context.SaveChangesAsync();
 
-                return Ok(new { message = "Bildirim okundu olarak işaretlendi" });
+                return Ok(new BildirimIslemSonucDto { Message = "Bildirim okundu olarak işaretlendi" });
             }
             catch (UnauthorizedAccessException)
             {
@@ -195,7 +188,7 @@ namespace Saga.Server.Controllers
 
         // POST: api/bildirim/tumunu-okundu-isaretle
         [HttpPost("tumunu-okundu-isaretle")]
-        public async Task<ActionResult> TumunuOkunduIsaretle()
+    public async Task<ActionResult<BildirimIslemSonucDto>> TumunuOkunduIsaretle()
         {
             try
             {
@@ -205,7 +198,7 @@ namespace Saga.Server.Controllers
                     .Where(b => b.AliciId == kullaniciId && !b.Okundu && !b.Silindi)
                     .ExecuteUpdateAsync(b => b.SetProperty(x => x.Okundu, true));
 
-                return Ok(new { message = "Tüm bildirimler okundu olarak işaretlendi" });
+                return Ok(new BildirimIslemSonucDto { Message = "Tüm bildirimler okundu olarak işaretlendi" });
             }
             catch (UnauthorizedAccessException)
             {
@@ -220,7 +213,7 @@ namespace Saga.Server.Controllers
 
         // DELETE: api/bildirim/{id}
         [HttpDelete("{id}")]
-        public async Task<ActionResult> BildirimSil(long id)
+    public async Task<ActionResult<BildirimIslemSonucDto>> BildirimSil(long id)
         {
             try
             {
@@ -237,7 +230,7 @@ namespace Saga.Server.Controllers
                 bildirim.Silindi = true;
                 await _context.SaveChangesAsync();
 
-                return Ok(new { message = "Bildirim silindi" });
+                return Ok(new BildirimIslemSonucDto { Message = "Bildirim silindi" });
             }
             catch (UnauthorizedAccessException)
             {
@@ -252,7 +245,7 @@ namespace Saga.Server.Controllers
 
         // DELETE: api/bildirim/tumunu-sil
         [HttpDelete("tumunu-sil")]
-        public async Task<ActionResult> TumBildirimleriSil()
+    public async Task<ActionResult<BildirimIslemSonucDto>> TumBildirimleriSil()
         {
             try
             {
@@ -262,7 +255,7 @@ namespace Saga.Server.Controllers
                     .Where(b => b.AliciId == kullaniciId && !b.Silindi)
                     .ExecuteUpdateAsync(b => b.SetProperty(x => x.Silindi, true));
 
-                return Ok(new { message = "Tüm bildirimler silindi" });
+                return Ok(new BildirimIslemSonucDto { Message = "Tüm bildirimler silindi" });
             }
             catch (UnauthorizedAccessException)
             {
@@ -278,7 +271,7 @@ namespace Saga.Server.Controllers
         // POST: api/bildirim/test (Development only - test bildirimi oluştur)
         [HttpPost("test")]
         [Authorize(Roles = "yonetici")]
-        public async Task<ActionResult> TestBildirimiOlustur([FromBody] TestBildirimDto model)
+    public async Task<ActionResult<BildirimIslemSonucDto>> TestBildirimiOlustur([FromBody] TestBildirimDto model)
         {
             try
             {
@@ -298,7 +291,7 @@ namespace Saga.Server.Controllers
                 _context.Bildirimler.Add(bildirim);
                 await _context.SaveChangesAsync();
 
-                return Ok(new { message = "Test bildirimi oluşturuldu", bildirimId = bildirim.Id });
+                return Ok(new BildirimIslemSonucDto { Message = "Test bildirimi oluşturuldu" });
             }
             catch (Exception ex)
             {
@@ -306,14 +299,5 @@ namespace Saga.Server.Controllers
                 return StatusCode(500, new { message = "Bildirim oluşturulurken bir hata oluştu" });
             }
         }
-    }
-
-    public class TestBildirimDto
-    {
-        public Guid AliciId { get; set; }
-        public string? Tip { get; set; }
-        public string Baslik { get; set; } = string.Empty;
-        public string Mesaj { get; set; } = string.Empty;
-        public string? LinkUrl { get; set; }
     }
 }

@@ -97,8 +97,9 @@ namespace Saga.Server.Data
 
             modelBuilder.Entity<Yorum>()
                 .HasOne(y => y.Kullanici)
-                .WithMany()
-                .HasForeignKey(y => y.KullaniciId);
+                .WithMany(k => k.Yorumlari)
+                .HasForeignKey(y => y.KullaniciId)
+                .OnDelete(DeleteBehavior.Cascade);
         }
     }
 }

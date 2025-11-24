@@ -9,7 +9,7 @@ namespace Saga.Server.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    public class IcerikController : ControllerBase
+    public class IcerikController : BaseApiController
     {
         private readonly SagaDbContext _context;
         private readonly ILogger<IcerikController> _logger;
@@ -480,26 +480,7 @@ namespace Saga.Server.Controllers
             }
         }
 
-        // Helper Methods
-        private Guid GetCurrentUserId()
-        {
-            var userIdClaim = User.FindFirst("sub")?.Value;
-            if (Guid.TryParse(userIdClaim, out var userId))
-            {
-                return userId;
-            }
-            throw new UnauthorizedAccessException("Kullanıcı kimliği doğrulanamadı.");
-        }
-
-        private Guid? GetCurrentUserIdOrNull()
-        {
-            var userIdClaim = User.FindFirst("sub")?.Value;
-            if (Guid.TryParse(userIdClaim, out var userId))
-            {
-                return userId;
-            }
-            return null;
-        }
+        // Helper Methods BaseApiController üzerinden gelmektedir.
     }
 
     // Manual içerik ekleme için DTO (IcerikDtos.cs'e eklenmeli)

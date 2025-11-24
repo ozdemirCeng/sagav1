@@ -9,7 +9,7 @@ namespace Saga.Server.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    public class YorumController : ControllerBase
+    public class YorumController : BaseApiController
     {
         private readonly SagaDbContext _context;
         private readonly ILogger<YorumController> _logger;
@@ -43,8 +43,8 @@ namespace Saga.Server.Controllers
                 _context.Yorumlar.Add(yorum);
                 await _context.SaveChangesAsync();
 
-                // Aktivite kaydı oluştur
-                await CreateAktivite(kullaniciId, yorum.Id);
+                    // Aktivite kaydı artık PostgreSQL trigger'ı ile otomatik oluşturuluyor (veritabaniyapisi -> aktivite_ekle_yorum)
+                    // Bu yüzden burada manuel Aktivite eklemiyoruz ki çift kayıt oluşmasın.
 
                 var kullanici = await _context.Kullanicilar.FindAsync(kullaniciId);
 
@@ -299,27 +299,7 @@ namespace Saga.Server.Controllers
             }
         }
 
-        // Helper Methods
-        private Guid GetCurrentUserId()
-        {
-            var userIdClaim = User.FindFirst("sub")?.Value;
-            if (Guid.TryParse(userIdClaim, out var userId))
-            {
-                return userId;
-            }
-            throw new UnauthorizedAccessException("Kullanıcı kimliği doğrulanamadı.");
-        }
-
-        private Guid? GetCurrentUserIdOrNull()
-        {
-            var userIdClaim = User.FindFirst("sub")?.Value;
-            if (Guid.TryParse(userIdClaim, out var userId))
-            {
-                return userId;
-            }
-            return null;
-        }
-
+        // Helper Methods BaseApiController'dan gelmektedir.
         private async Task CreateAktivite(Guid kullaniciId, long yorumId)
         {
             var aktivite = new Aktivite

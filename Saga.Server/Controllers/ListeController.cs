@@ -9,7 +9,7 @@ namespace Saga.Server.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    public class ListeController : ControllerBase
+    public class ListeController : BaseApiController
     {
         private readonly SagaDbContext _context;
         private readonly ILogger<ListeController> _logger;
@@ -50,7 +50,8 @@ namespace Saga.Server.Controllers
                 await _context.SaveChangesAsync();
 
                 // Aktivite kaydı
-                await CreateAktivite(kullaniciId, liste.Id);
+                    // TODO: Listeye ekleme aktiviteleri için DB tarafında trigger tanımlandığında C# tarafında manuel Aktivite oluşturma kaldırıldı.
+                    // Şu anda sadece istatistikler güncelleniyor; feed ihtiyacı artarsa veritabaniyapisi'ne uygun bir trigger eklenmeli.
 
                 var kullanici = await _context.Kullanicilar.FindAsync(kullaniciId);
 
@@ -534,39 +535,10 @@ namespace Saga.Server.Controllers
             }
         }
 
-        // Helper Methods
-        private Guid GetCurrentUserId()
-        {
-            var userIdClaim = User.FindFirst("sub")?.Value;
-            if (Guid.TryParse(userIdClaim, out var userId))
-            {
-                return userId;
-            }
-            throw new UnauthorizedAccessException("Kullanıcı kimliği doğrulanamadı.");
-        }
-
-        private Guid? GetCurrentUserIdOrNull()
-        {
-            var userIdClaim = User.FindFirst("sub")?.Value;
-            if (Guid.TryParse(userIdClaim, out var userId))
-            {
-                return userId;
-            }
-            return null;
-        }
-
+        // Helper Methods BaseApiController'dan gelmektedir.
         private async Task CreateAktivite(Guid kullaniciId, long listeId)
         {
-            var aktivite = new Aktivite
-            {
-                KullaniciId = kullaniciId,
-                AktiviteTuru = AktiviteTuru.listeye_ekleme,
-                ListeId = listeId,
-                OlusturulmaZamani = DateTime.UtcNow
-            };
-
-            _context.Aktiviteler.Add(aktivite);
-            await _context.SaveChangesAsync();
+            // Bu metod artık kullanılmıyor, manuel aktivite oluşturma kaldırıldı.
         }
 
         private async Task CreateListeIcerikAktivite(Guid kullaniciId, long listeId, long icerikId)

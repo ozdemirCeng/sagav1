@@ -9,7 +9,7 @@ namespace Saga.Server.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    public class KutuphaneController : ControllerBase
+    public class KutuphaneController : BaseApiController
     {
         private readonly SagaDbContext _context;
         private readonly ILogger<KutuphaneController> _logger;
@@ -59,8 +59,8 @@ namespace Saga.Server.Controllers
                 _context.KutuphaneDurumlari.Add(kutuphaneDurum);
                 await _context.SaveChangesAsync();
 
-                // Aktivite kaydı
-                await CreateAktivite(kullaniciId, kutuphaneDurum.Id);
+                    // TODO: Kütüphane durum güncelleme aktiviteleri için DB tarafında trigger tanımlandığında C# tarafında manuel Aktivite oluşturma kaldırıldı.
+                    // Şu anda sadece kutuphane_durumlari tablosu güncelleniyor; feed ihtiyacı artarsa veritabaniyapisi'ne uygun bir trigger eklenmeli.
 
                 var icerik = await _context.Icerikler.FindAsync(dto.IcerikId);
 
@@ -342,17 +342,7 @@ namespace Saga.Server.Controllers
             return Ok(istatistik);
         }
 
-        // Helper Methods
-        private Guid GetCurrentUserId()
-        {
-            var userIdClaim = User.FindFirst("sub")?.Value;
-            if (Guid.TryParse(userIdClaim, out var userId))
-            {
-                return userId;
-            }
-            throw new UnauthorizedAccessException("Kullanıcı kimliği doğrulanamadı.");
-        }
-
+        // Helper Methods BaseApiController'dan gelmektedir.
         private async Task CreateAktivite(Guid kullaniciId, long kutuphaneDurumId)
         {
             var kutuphaneDurum = await _context.KutuphaneDurumlari.FindAsync(kutuphaneDurumId);

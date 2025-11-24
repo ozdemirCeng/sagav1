@@ -9,7 +9,7 @@ namespace Saga.Server.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    public class KullaniciController : ControllerBase
+    public class KullaniciController : BaseApiController
     {
         private readonly SagaDbContext _context;
         private readonly ILogger<KullaniciController> _logger;
@@ -331,24 +331,46 @@ namespace Saga.Server.Controllers
         }
 
         // GET: api/kullanici/{id}/aktiviteler
-        // Proje İsterler 2.1.5: Kullanıcının son aktiviteleri
+        // Proje İsterler 2.1.5: Kullanıcının son aktiviteleri (filtreli)
         [HttpGet("{id}/aktiviteler")]
         public async Task<ActionResult<List<AktiviteDto>>> GetKullaniciAktiviteleri(
             Guid id,
+            [FromQuery] string? aktiviteTuru = null,
+            [FromQuery] DateTime? baslangic = null,
+            [FromQuery] DateTime? bitis = null,
             [FromQuery] int sayfa = 1,
             [FromQuery] int limit = 20)
         {
-            var aktiviteler = await _context.Aktiviteler
+            var query = _context.Aktiviteler
                 .Include(a => a.Kullanici)
                 .Include(a => a.Icerik)
                 .Include(a => a.Yorum)
                 .Include(a => a.Puanlama)
                 .Include(a => a.Liste)
                 .Where(a => a.KullaniciId == id)
+                .AsNoTracking();
+
+            // Aktivite türü filtresi
+            if (!string.IsNullOrEmpty(aktiviteTuru) && Enum.TryParse<AktiviteTuru>(aktiviteTuru, true, out var tur))
+            {
+                query = query.Where(a => a.AktiviteTuru == tur);
+            }
+
+            // Tarih aralığı filtresi
+            if (baslangic.HasValue)
+            {
+                query = query.Where(a => a.OlusturulmaZamani >= baslangic.Value);
+            }
+
+            if (bitis.HasValue)
+            {
+                query = query.Where(a => a.OlusturulmaZamani <= bitis.Value);
+            }
+
+            var aktiviteler = await query
                 .OrderByDescending(a => a.OlusturulmaZamani)
                 .Skip((sayfa - 1) * limit)
                 .Take(limit)
-                .AsNoTracking()
                 .ToListAsync();
 
             var response = aktiviteler.Select(a => new AktiviteDto
@@ -374,28 +396,9 @@ namespace Saga.Server.Controllers
         }
 
         // Helper Methods
-        private Guid GetCurrentUserId()
-        {
-            var userIdClaim = User.FindFirst("sub")?.Value;
-            if (Guid.TryParse(userIdClaim, out var userId))
-            {
-                return userId;
-            }
-            throw new UnauthorizedAccessException("Kullanıcı kimliği doğrulanamadı.");
-        }
-
-        private Guid? GetCurrentUserIdOrNull()
-        {
-            var userIdClaim = User.FindFirst("sub")?.Value;
-            if (Guid.TryParse(userIdClaim, out var userId))
-            {
-                return userId;
-            }
-            return null;
-        }
-
         private async Task CreateTakipAktivite(Guid takipEdenId, Guid takipEdilenId)
         {
+            // Takip aktiviteleri şu an sadece C# tarafında üretiliyor; DB trigger'ı olmadığı için bu kayıt tek kaynaktan geliyor.
             var aktivite = new Aktivite
             {
                 KullaniciId = takipEdenId,

@@ -9,7 +9,7 @@ namespace Saga.Server.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    public class PuanlamaController : ControllerBase
+    public class PuanlamaController : BaseApiController
     {
         private readonly SagaDbContext _context;
         private readonly ILogger<PuanlamaController> _logger;
@@ -51,8 +51,8 @@ namespace Saga.Server.Controllers
                 _context.Puanlamalar.Add(puanlama);
                 await _context.SaveChangesAsync();
 
-                // Aktivite kaydı oluştur
-                await CreateAktivite(kullaniciId, puanlama.Id);
+                // Aktivite kaydı artık PostgreSQL trigger'ı ile otomatik oluşturuluyor (veritabaniyapisi -> aktivite_ekle_puanlama)
+                // Bu yüzden burada manuel Aktivite eklemiyoruz ki çift kayıt oluşmasın.
 
                 var response = new PuanlamaResponseDto
                 {
@@ -315,30 +315,8 @@ namespace Saga.Server.Controllers
         }
 
         // Helper Methods
-        private Guid GetCurrentUserId()
-        {
-            // TODO: JWT token'dan kullanıcı ID'sini çek
-            // Şimdilik test için placeholder GUID
-            var userIdClaim = User.FindFirst("sub")?.Value;
-            if (Guid.TryParse(userIdClaim, out var userId))
-            {
-                return userId;
-            }
-            throw new UnauthorizedAccessException("Kullanıcı kimliği doğrulanamadı.");
-        }
+        // GetCurrentUserId BaseApiController'dan gelmektedir.
 
-        private async Task CreateAktivite(Guid kullaniciId, long puanlamaId)
-        {
-            var aktivite = new Aktivite
-            {
-                KullaniciId = kullaniciId,
-                AktiviteTuru = AktiviteTuru.puanlama,
-                PuanlamaId = puanlamaId,
-                OlusturulmaZamani = DateTime.UtcNow
-            };
-
-            _context.Aktiviteler.Add(aktivite);
-            await _context.SaveChangesAsync();
-        }
+        // CreateAktivite metodu artık kullanılmıyor; puanlama aktiviteleri veritabanı trigger'ı ile oluşturuluyor.
     }
 }

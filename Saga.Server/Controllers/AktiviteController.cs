@@ -10,7 +10,7 @@ namespace Saga.Server.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    public class AktiviteController : ControllerBase
+    public class AktiviteController : BaseApiController
     {
         private readonly SagaDbContext _context;
         private readonly ILogger<AktiviteController> _logger;
@@ -168,20 +168,42 @@ namespace Saga.Server.Controllers
         [HttpGet("kullanici/{kullaniciId}")]
         public async Task<ActionResult<List<AktiviteFeedDto>>> GetKullaniciAktiviteleri(
             Guid kullaniciId,
+            [FromQuery] string? aktiviteTuru = null,
+            [FromQuery] DateTime? baslangic = null,
+            [FromQuery] DateTime? bitis = null,
             [FromQuery] int sayfa = 1,
             [FromQuery] int limit = 20)
         {
-            var aktiviteler = await _context.Aktiviteler
+            var query = _context.Aktiviteler
                 .Include(a => a.Kullanici)
                 .Include(a => a.Icerik)
                 .Include(a => a.Puanlama)
                 .Include(a => a.Yorum)
                 .Include(a => a.Liste)
                 .Where(a => a.KullaniciId == kullaniciId && !a.Silindi)
+                .AsNoTracking();
+
+            // Aktivite türü filtresi
+            if (!string.IsNullOrEmpty(aktiviteTuru) && Enum.TryParse<AktiviteTuru>(aktiviteTuru, true, out var tur))
+            {
+                query = query.Where(a => a.AktiviteTuru == tur);
+            }
+
+            // Tarih aralığı filtresi
+            if (baslangic.HasValue)
+            {
+                query = query.Where(a => a.OlusturulmaZamani >= baslangic.Value);
+            }
+
+            if (bitis.HasValue)
+            {
+                query = query.Where(a => a.OlusturulmaZamani <= bitis.Value);
+            }
+
+            var aktiviteler = await query
                 .OrderByDescending(a => a.OlusturulmaZamani)
                 .Skip((sayfa - 1) * limit)
                 .Take(limit)
-                .AsNoTracking()
                 .ToListAsync();
 
             var feedItems = new List<AktiviteFeedDto>();
@@ -235,28 +257,6 @@ namespace Saga.Server.Controllers
         }
 
         // Helper Methods
-        private Guid GetCurrentUserId()
-        {
-            var userIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value 
-                              ?? User.FindFirst("sub")?.Value;
-            
-            if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
-            {
-                throw new UnauthorizedAccessException("Kullanıcı ID'si bulunamadı");
-            }
-            return userId;
-        }
-
-        private Guid? GetCurrentUserIdOrNull()
-        {
-            var userIdClaim = User.FindFirst("sub")?.Value;
-            if (Guid.TryParse(userIdClaim, out var userId))
-            {
-                return userId;
-            }
-            return null;
-        }
-
         private async Task<AktiviteVeriDto?> BuildAktiviteVeri(Aktivite aktivite)
         {
             var veri = new AktiviteVeriDto();

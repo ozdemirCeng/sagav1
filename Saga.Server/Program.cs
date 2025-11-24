@@ -5,6 +5,7 @@ using Npgsql;
 using Saga.Server.Data;
 using Saga.Server.Models;
 using Saga.Server.Services;
+using Saga.Server.Middleware;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -89,6 +90,9 @@ using (var scope = app.Services.CreateScope())
 
 app.UseDefaultFiles();
 app.UseStaticFiles();
+
+// Global exception handling
+app.UseMiddleware<ExceptionHandlingMiddleware>();
 
 app.UseSwagger();
 app.UseSwaggerUI();
