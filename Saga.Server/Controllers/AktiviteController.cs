@@ -22,18 +22,95 @@ namespace Saga.Server.Controllers
         }
 
         // GET: api/aktivite/feed
+        // Proje İsteri 2.1.2: Takip edilen kullanıcıların aktivite feed'i (timeline)
         [HttpGet("feed")]
+        [Authorize]
         public async Task<ActionResult<List<AktiviteFeedDto>>> GetFeed(
-            [FromQuery] Guid? kullaniciId = null,
             [FromQuery] string? aktiviteTuru = null,
-            [FromQuery] bool sadeceTabipEdilenler = false,
+            [FromQuery] int sayfa = 1,
+            [FromQuery] int limit = 15)  // Proje isterine göre 10-15
+        {
+            try
+            {
+                var currentUserId = GetCurrentUserId();
+
+                // Takip edilen kullanıcıların ID'lerini al
+                var takipEdilenIds = await _context.Takipler
+                    .Where(t => t.TakipEdenId == currentUserId)
+                    .Select(t => t.TakipEdilenId)
+                    .ToListAsync();
+
+                // Kendi ID'sini de ekle (kendi aktivitelerini de görsün)
+                takipEdilenIds.Add(currentUserId);
+
+                var query = _context.Aktiviteler
+                    .Include(a => a.Kullanici)
+                    .Include(a => a.Icerik)
+                    .Include(a => a.Puanlama)
+                    .Include(a => a.Yorum)
+                    .Include(a => a.Liste)
+                    .Where(a => !a.Silindi && takipEdilenIds.Contains(a.KullaniciId))
+                    .AsNoTracking();
+
+                // Aktivite türü filtresi
+                if (!string.IsNullOrEmpty(aktiviteTuru) && Enum.TryParse<AktiviteTuru>(aktiviteTuru, true, out var tur))
+                {
+                    query = query.Where(a => a.AktiviteTuru == tur);
+                }
+
+                // Pagination
+                var toplam = await query.CountAsync();
+                var aktiviteler = await query
+                    .OrderByDescending(a => a.OlusturulmaZamani)
+                    .Skip((sayfa - 1) * limit)
+                    .Take(limit)
+                    .ToListAsync();
+
+                var feedItems = new List<AktiviteFeedDto>();
+
+                foreach (var aktivite in aktiviteler)
+                {
+                    var feedItem = new AktiviteFeedDto
+                    {
+                        Id = aktivite.Id,
+                        KullaniciId = aktivite.KullaniciId,
+                        KullaniciAdi = aktivite.Kullanici.KullaniciAdi,
+                        KullaniciAvatar = aktivite.Kullanici.AvatarUrl,
+                        AktiviteTuru = aktivite.AktiviteTuru.ToString(),
+                        OlusturulmaZamani = aktivite.OlusturulmaZamani,
+                        Veri = await BuildAktiviteVeri(aktivite)
+                    };
+
+                    feedItems.Add(feedItem);
+                }
+
+                Response.Headers.Append("X-Toplam-Sayfa", ((toplam + limit - 1) / limit).ToString());
+                Response.Headers.Append("X-Toplam-Kayit", toplam.ToString());
+                Response.Headers.Append("X-Mevcut-Sayfa", sayfa.ToString());
+
+                return Ok(feedItems);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return Unauthorized(new { message = "Giriş yapmanız gerekiyor" });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Feed yüklenirken hata");
+                return StatusCode(500, new { message = "Feed yüklenirken bir hata oluştu." });
+            }
+        }
+
+        // GET: api/aktivite/genel
+        // Tüm kullanıcıların aktiviteleri (keşfet/explore sayfası için)
+        [HttpGet("genel")]
+        public async Task<ActionResult<List<AktiviteFeedDto>>> GetGenelFeed(
+            [FromQuery] string? aktiviteTuru = null,
             [FromQuery] int sayfa = 1,
             [FromQuery] int limit = 20)
         {
             try
             {
-                var currentUserId = GetCurrentUserIdOrNull();
-
                 var query = _context.Aktiviteler
                     .Include(a => a.Kullanici)
                     .Include(a => a.Icerik)
@@ -42,23 +119,6 @@ namespace Saga.Server.Controllers
                     .Include(a => a.Liste)
                     .Where(a => !a.Silindi)
                     .AsNoTracking();
-
-                // Belirli kullanıcının aktiviteleri
-                if (kullaniciId.HasValue)
-                {
-                    query = query.Where(a => a.KullaniciId == kullaniciId.Value);
-                }
-
-                // Sadece takip edilen kullanıcıların aktiviteleri
-                if (sadeceTabipEdilenler && currentUserId.HasValue)
-                {
-                    var takipEdilenIds = await _context.Takipler
-                        .Where(t => t.TakipEdenId == currentUserId.Value)
-                        .Select(t => t.TakipEdilenId)
-                        .ToListAsync();
-
-                    query = query.Where(a => takipEdilenIds.Contains(a.KullaniciId));
-                }
 
                 // Aktivite türü filtresi
                 if (!string.IsNullOrEmpty(aktiviteTuru) && Enum.TryParse<AktiviteTuru>(aktiviteTuru, true, out var tur))
@@ -175,6 +235,18 @@ namespace Saga.Server.Controllers
         }
 
         // Helper Methods
+        private Guid GetCurrentUserId()
+        {
+            var userIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value 
+                              ?? User.FindFirst("sub")?.Value;
+            
+            if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+            {
+                throw new UnauthorizedAccessException("Kullanıcı ID'si bulunamadı");
+            }
+            return userId;
+        }
+
         private Guid? GetCurrentUserIdOrNull()
         {
             var userIdClaim = User.FindFirst("sub")?.Value;
