@@ -92,4 +92,16 @@ namespace Saga.Server.DTOs
         [MaxLength(500)]
         public string? NotMetni { get; set; }
     }
+
+    // Liste paylaşım response
+    public class ListePaylasildiDto
+    {
+        public long ListeId { get; set; }
+        public string ListeAdi { get; set; } = null!;
+        public string KullaniciAdi { get; set; } = null!;
+        public string PaylasilmaUrl { get; set; } = null!;
+        public bool HerkeseAcik { get; set; }
+        public int IcerikSayisi { get; set; }
+    }
 }
+

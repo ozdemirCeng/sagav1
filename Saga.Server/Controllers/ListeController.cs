@@ -431,6 +431,109 @@ namespace Saga.Server.Controllers
             }
         }
 
+        // POST: api/liste/{id}/paylas
+        // Proje İsterleri 2.1.5: Liste paylaşım linki
+        [HttpPost("{id}/paylas")]
+        [Authorize]
+        public async Task<ActionResult<ListePaylasildiDto>> GetShareLink(long id)
+        {
+            try
+            {
+                var kullaniciId = GetCurrentUserId();
+
+                var liste = await _context.Listeler
+                    .Include(l => l.Kullanici)
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(l => l.Id == id && !l.Silindi);
+
+                if (liste == null)
+                {
+                    return NotFound(new { message = "Liste bulunamadı." });
+                }
+
+                // Yetki kontrolü
+                if (liste.KullaniciId != kullaniciId)
+                {
+                    return Forbid();
+                }
+
+                // Listeyi herkese açık yap (paylaşım için gerekli)
+                if (!liste.HerkeseAcik)
+                {
+                    var listeEntity = await _context.Listeler.FindAsync(id);
+                    if (listeEntity != null)
+                    {
+                        listeEntity.HerkeseAcik = true;
+                        listeEntity.GuncellemeZamani = DateTime.UtcNow;
+                        await _context.SaveChangesAsync();
+                    }
+                }
+
+                // Paylaşım URL'i oluştur (frontend URL'i ile)
+                var baseUrl = $"{Request.Scheme}://{Request.Host}";
+                var shareUrl = $"{baseUrl}/liste/{id}";
+
+                var response = new ListePaylasildiDto
+                {
+                    ListeId = id,
+                    ListeAdi = liste.Ad,
+                    KullaniciAdi = liste.Kullanici.KullaniciAdi,
+                    PaylasilmaUrl = shareUrl,
+                    HerkeseAcik = true,
+                    IcerikSayisi = liste.IcerikSayisi
+                };
+
+                return Ok(response);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Liste paylaşılırken hata: {ListeId}", id);
+                return StatusCode(500, new { message = "Paylaşım linki oluşturulurken bir hata oluştu." });
+            }
+        }
+
+        // POST: api/liste/{id}/gizlilik
+        // Proje İsterleri 2.1.5: Liste gizlilik ayarı toggle
+        [HttpPost("{id}/gizlilik")]
+        [Authorize]
+        public async Task<IActionResult> TogglePrivacy(long id)
+        {
+            try
+            {
+                var kullaniciId = GetCurrentUserId();
+
+                var liste = await _context.Listeler
+                    .FirstOrDefaultAsync(l => l.Id == id && !l.Silindi);
+
+                if (liste == null)
+                {
+                    return NotFound(new { message = "Liste bulunamadı." });
+                }
+
+                // Yetki kontrolü
+                if (liste.KullaniciId != kullaniciId)
+                {
+                    return Forbid();
+                }
+
+                // Gizlilik ayarını değiştir
+                liste.HerkeseAcik = !liste.HerkeseAcik;
+                liste.GuncellemeZamani = DateTime.UtcNow;
+                await _context.SaveChangesAsync();
+
+                return Ok(new
+                {
+                    message = liste.HerkeseAcik ? "Liste herkese açık yapıldı" : "Liste gizli yapıldı",
+                    herkeseAcik = liste.HerkeseAcik
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Liste gizlilik ayarı değiştirilirken hata: {ListeId}", id);
+                return StatusCode(500, new { message = "Gizlilik ayarı değiştirilirken bir hata oluştu." });
+            }
+        }
+
         // Helper Methods
         private Guid GetCurrentUserId()
         {
