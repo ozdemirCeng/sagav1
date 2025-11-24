@@ -28,6 +28,10 @@ builder.Services.AddDbContext<SagaDbContext>(options =>
 // 2. TOKEN SERVİSİ
 builder.Services.AddScoped<TokenService>();
 
+// 2.1. EXTERNAL API SERVİSLERİ
+builder.Services.AddHttpClient<ITmdbService, TmdbService>();
+builder.Services.AddHttpClient<IGoogleBooksService, GoogleBooksService>();
+
 // 3. CORS
 builder.Services.AddCors(options =>
 {
