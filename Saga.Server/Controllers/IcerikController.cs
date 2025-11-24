@@ -83,6 +83,7 @@ namespace Saga.Server.Controllers
         }
 
         // GET: api/icerik/ara?q={query}
+        // PostgreSQL Full-Text Search ile gelişmiş arama
         [HttpGet("ara")]
         public async Task<ActionResult<List<IcerikSearchDto>>> SearchIcerik(
             [FromQuery] string q,
@@ -95,14 +96,131 @@ namespace Saga.Server.Controllers
                 return BadRequest(new { message = "Arama terimi en az 2 karakter olmalıdır." });
             }
 
-            var query = _context.Icerikler
-                .Where(i => i.Baslik.Contains(q) || (i.Aciklama != null && i.Aciklama.Contains(q)))
-                .AsNoTracking();
+            try
+            {
+                // PostgreSQL Full-Text Search kullan
+                var searchQuery = @"
+                    SELECT i.* 
+                    FROM icerikler i
+                    WHERE i.arama_vektoru @@ plainto_tsquery('turkish', {0})
+                    ORDER BY ts_rank(i.arama_vektoru, plainto_tsquery('turkish', {0})) DESC
+                    LIMIT {1} OFFSET {2}";
+
+                var countQuery = @"
+                    SELECT COUNT(*)
+                    FROM icerikler i
+                    WHERE i.arama_vektoru @@ plainto_tsquery('turkish', {0})";
+
+                var offset = (sayfa - 1) * limit;
+
+                var icerikler = await _context.Icerikler
+                    .FromSqlRaw(searchQuery, q, limit, offset)
+                    .AsNoTracking()
+                    .ToListAsync();
+
+                // Tür filtresi (PostgreSQL'den geldikten sonra)
+                if (!string.IsNullOrEmpty(tur) && Enum.TryParse<IcerikTuru>(tur, true, out var turEnum))
+                {
+                    icerikler = icerikler.Where(i => i.Tur == turEnum).ToList();
+                }
+
+                var toplam = await _context.Icerikler
+                    .FromSqlRaw(countQuery, q)
+                    .CountAsync();
+
+                var response = icerikler.Select(i => new IcerikSearchDto
+                {
+                    Id = i.Id,
+                    Baslik = i.Baslik,
+                    Tur = i.Tur.ToString(),
+                    PosterUrl = i.PosterUrl,
+                    OrtalamaPuan = i.OrtalamaPuan,
+                    YayinTarihi = i.YayinTarihi,
+                    Aciklama = i.Aciklama != null && i.Aciklama.Length > 200
+                        ? i.Aciklama.Substring(0, 200) + "..."
+                        : i.Aciklama
+                }).ToList();
+
+                Response.Headers.Append("X-Toplam-Sayfa", ((toplam + limit - 1) / limit).ToString());
+                Response.Headers.Append("X-Toplam-Kayit", toplam.ToString());
+
+                return Ok(response);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Full-text search hatası, fallback'e geçiliyor");
+
+                // Fallback: Normal LIKE sorgusu
+                var query = _context.Icerikler
+                    .Where(i => i.Baslik.Contains(q) || (i.Aciklama != null && i.Aciklama.Contains(q)))
+                    .AsNoTracking();
+
+                if (!string.IsNullOrEmpty(tur) && Enum.TryParse<IcerikTuru>(tur, true, out var turEnum))
+                {
+                    query = query.Where(i => i.Tur == turEnum);
+                }
+
+                var toplam = await query.CountAsync();
+                var icerikler = await query
+                    .OrderByDescending(i => i.PopulerlikSkoru)
+                    .Skip((sayfa - 1) * limit)
+                    .Take(limit)
+                    .ToListAsync();
+
+                var response = icerikler.Select(i => new IcerikSearchDto
+                {
+                    Id = i.Id,
+                    Baslik = i.Baslik,
+                    Tur = i.Tur.ToString(),
+                    PosterUrl = i.PosterUrl,
+                    OrtalamaPuan = i.OrtalamaPuan,
+                    YayinTarihi = i.YayinTarihi,
+                    Aciklama = i.Aciklama != null && i.Aciklama.Length > 200
+                        ? i.Aciklama.Substring(0, 200) + "..."
+                        : i.Aciklama
+                }).ToList();
+
+                Response.Headers.Append("X-Toplam-Sayfa", ((toplam + limit - 1) / limit).ToString());
+                Response.Headers.Append("X-Toplam-Kayit", toplam.ToString());
+
+                return Ok(response);
+            }
+        }
+
+        // GET: api/icerik/filtrele
+        // Proje İsteri 2.1.3: Gelişmiş Filtreleme (Tür, Yıl, Puan)
+        [HttpGet("filtrele")]
+        public async Task<ActionResult<List<IcerikListDto>>> FiltreliIcerikler(
+            [FromQuery] string? tur = null,
+            [FromQuery] int? yil = null,
+            [FromQuery] decimal? minPuan = null,
+            [FromQuery] decimal? maxPuan = null,
+            [FromQuery] int sayfa = 1,
+            [FromQuery] int limit = 20)
+        {
+            var query = _context.Icerikler.AsNoTracking();
 
             // Tür filtresi
             if (!string.IsNullOrEmpty(tur) && Enum.TryParse<IcerikTuru>(tur, true, out var turEnum))
             {
                 query = query.Where(i => i.Tur == turEnum);
+            }
+
+            // Yıl filtresi
+            if (yil.HasValue)
+            {
+                query = query.Where(i => i.YayinTarihi.HasValue && i.YayinTarihi.Value.Year == yil.Value);
+            }
+
+            // Puan filtresi
+            if (minPuan.HasValue)
+            {
+                query = query.Where(i => i.OrtalamaPuan >= minPuan.Value);
+            }
+
+            if (maxPuan.HasValue)
+            {
+                query = query.Where(i => i.OrtalamaPuan <= maxPuan.Value);
             }
 
             var toplam = await query.CountAsync();
@@ -112,7 +230,7 @@ namespace Saga.Server.Controllers
                 .Take(limit)
                 .ToListAsync();
 
-            var response = icerikler.Select(i => new IcerikSearchDto
+            var response = icerikler.Select(i => new IcerikListDto
             {
                 Id = i.Id,
                 Baslik = i.Baslik,
@@ -120,13 +238,49 @@ namespace Saga.Server.Controllers
                 PosterUrl = i.PosterUrl,
                 OrtalamaPuan = i.OrtalamaPuan,
                 YayinTarihi = i.YayinTarihi,
-                Aciklama = i.Aciklama != null && i.Aciklama.Length > 200
-                    ? i.Aciklama.Substring(0, 200) + "..."
-                    : i.Aciklama
+                PopulerlikSkoru = i.PopulerlikSkoru
             }).ToList();
 
             Response.Headers.Append("X-Toplam-Sayfa", ((toplam + limit - 1) / limit).ToString());
             Response.Headers.Append("X-Toplam-Kayit", toplam.ToString());
+
+            return Ok(response);
+        }
+
+        // GET: api/icerik/en-yuksek-puanlilar
+        // Proje İsteri 2.1.3: En Yüksek Puanlılar Vitrini
+        [HttpGet("en-yuksek-puanlilar")]
+        public async Task<ActionResult<List<IcerikListDto>>> GetEnYuksekPuanlilar(
+            [FromQuery] string? tur = null,
+            [FromQuery] int limit = 20)
+        {
+            var query = _context.Icerikler
+                .Where(i => i.PuanlamaSayisi >= 5)  // En az 5 puan almış olmalı
+                .AsNoTracking();
+
+            // Tür filtresi
+            if (!string.IsNullOrEmpty(tur) && Enum.TryParse<IcerikTuru>(tur, true, out var turEnum))
+            {
+                query = query.Where(i => i.Tur == turEnum);
+            }
+
+            var icerikler = await query
+                .OrderByDescending(i => i.OrtalamaPuan)
+                .ThenByDescending(i => i.PuanlamaSayisi)
+                .Take(limit)
+                .ToListAsync();
+
+            var response = icerikler.Select(i => new IcerikListDto
+            {
+                Id = i.Id,
+                Baslik = i.Baslik,
+                Tur = i.Tur.ToString(),
+                PosterUrl = i.PosterUrl,
+                OrtalamaPuan = i.OrtalamaPuan,
+                YayinTarihi = i.YayinTarihi,
+                PopulerlikSkoru = i.PopulerlikSkoru,
+                PuanlamaSayisi = i.PuanlamaSayisi
+            }).ToList();
 
             return Ok(response);
         }
@@ -182,44 +336,6 @@ namespace Saga.Server.Controllers
             var icerikler = await query
                 .OrderByDescending(i => i.YayinTarihi ?? DateOnly.MinValue)
                 .ThenByDescending(i => i.OlusturulmaZamani)
-                .Take(limit)
-                .ToListAsync();
-
-            var response = icerikler.Select(i => new IcerikListDto
-            {
-                Id = i.Id,
-                Baslik = i.Baslik,
-                Tur = i.Tur.ToString(),
-                PosterUrl = i.PosterUrl,
-                OrtalamaPuan = i.OrtalamaPuan,
-                PuanlamaSayisi = i.PuanlamaSayisi,
-                PopulerlikSkoru = i.PopulerlikSkoru,
-                YayinTarihi = i.YayinTarihi
-            }).ToList();
-
-            return Ok(response);
-        }
-
-        // GET: api/icerik/en-yuksek-puan
-        [HttpGet("en-yuksek-puan")]
-        public async Task<ActionResult<List<IcerikListDto>>> GetEnYuksekPuanlilar(
-            [FromQuery] string? tur = null,
-            [FromQuery] int minPuanlamaSayisi = 10,
-            [FromQuery] int limit = 20)
-        {
-            var query = _context.Icerikler
-                .Where(i => i.PuanlamaSayisi >= minPuanlamaSayisi)
-                .AsNoTracking();
-
-            // Tür filtresi
-            if (!string.IsNullOrEmpty(tur) && Enum.TryParse<IcerikTuru>(tur, true, out var turEnum))
-            {
-                query = query.Where(i => i.Tur == turEnum);
-            }
-
-            var icerikler = await query
-                .OrderByDescending(i => i.OrtalamaPuan)
-                .ThenByDescending(i => i.PuanlamaSayisi)
                 .Take(limit)
                 .ToListAsync();
 
@@ -301,75 +417,6 @@ namespace Saga.Server.Controllers
                 _logger.LogError(ex, "Öneri sistemi hatası");
                 return StatusCode(500, new { message = "Öneriler yüklenirken bir hata oluştu." });
             }
-        }
-
-        // GET: api/icerik/filtrele
-        [HttpGet("filtrele")]
-        public async Task<ActionResult<List<IcerikListDto>>> FiltrelemeIle(
-            [FromQuery] string? tur = null,
-            [FromQuery] string? siralama = "populerlik",
-            [FromQuery] decimal? minPuan = null,
-            [FromQuery] int? minYil = null,
-            [FromQuery] int? maxYil = null,
-            [FromQuery] int sayfa = 1,
-            [FromQuery] int limit = 20)
-        {
-            var query = _context.Icerikler.AsNoTracking();
-
-            // Tür filtresi
-            if (!string.IsNullOrEmpty(tur) && Enum.TryParse<IcerikTuru>(tur, true, out var turEnum))
-            {
-                query = query.Where(i => i.Tur == turEnum);
-            }
-
-            // Minimum puan filtresi
-            if (minPuan.HasValue)
-            {
-                query = query.Where(i => i.OrtalamaPuan >= minPuan.Value);
-            }
-
-            // Yıl aralığı filtresi
-            if (minYil.HasValue)
-            {
-                query = query.Where(i => i.YayinTarihi.HasValue && i.YayinTarihi.Value.Year >= minYil.Value);
-            }
-
-            if (maxYil.HasValue)
-            {
-                query = query.Where(i => i.YayinTarihi.HasValue && i.YayinTarihi.Value.Year <= maxYil.Value);
-            }
-
-            // Sıralama
-            query = siralama?.ToLower() switch
-            {
-                "puan" => query.OrderByDescending(i => i.OrtalamaPuan).ThenByDescending(i => i.PuanlamaSayisi),
-                "tarih" => query.OrderByDescending(i => i.YayinTarihi ?? DateOnly.MinValue),
-                "yeni" => query.OrderByDescending(i => i.OlusturulmaZamani),
-                _ => query.OrderByDescending(i => i.PopulerlikSkoru)
-            };
-
-            var toplam = await query.CountAsync();
-            var icerikler = await query
-                .Skip((sayfa - 1) * limit)
-                .Take(limit)
-                .ToListAsync();
-
-            var response = icerikler.Select(i => new IcerikListDto
-            {
-                Id = i.Id,
-                Baslik = i.Baslik,
-                Tur = i.Tur.ToString(),
-                PosterUrl = i.PosterUrl,
-                OrtalamaPuan = i.OrtalamaPuan,
-                PuanlamaSayisi = i.PuanlamaSayisi,
-                PopulerlikSkoru = i.PopulerlikSkoru,
-                YayinTarihi = i.YayinTarihi
-            }).ToList();
-
-            Response.Headers.Append("X-Toplam-Sayfa", ((toplam + limit - 1) / limit).ToString());
-            Response.Headers.Append("X-Toplam-Kayit", toplam.ToString());
-
-            return Ok(response);
         }
 
         // POST: api/icerik (Manual ekleme - admin/moderator için)
