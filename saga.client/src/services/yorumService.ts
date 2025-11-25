@@ -2,6 +2,7 @@ import api from './api';
 
 export interface YorumCreateDto {
     icerikId: number;
+    baslik?: string;
     icerik: string;
     puan?: number;
     spoilerIceriyor: boolean;

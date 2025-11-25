@@ -1,13 +1,37 @@
-import { AppShell, Group, Burger, Title, Button, Menu, Avatar, rem } from '@mantine/core';
+import { AppShell, Group, Burger, Title, Button, Menu, Avatar, rem, Stack, NavLink, ScrollArea } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { Outlet, useNavigate } from 'react-router-dom';
-import { LogOut, User, Settings } from 'lucide-react';
+import { Outlet, useNavigate, useLocation } from 'react-router-dom';
+import { 
+  IconLogout, 
+  IconUser, 
+  IconSettings, 
+  IconHome,
+  IconSearch,
+  IconStar,
+  IconBookmark,
+  IconList,
+} from '@tabler/icons-react';
 import { useAuth } from '../context/AuthContext';
 
 export default function AppLayout() {
-    const [opened, { toggle }] = useDisclosure();
+    const [opened, { toggle, close }] = useDisclosure();
     const navigate = useNavigate();
-    const { user, signOut } = useAuth(); // Context'ten kullanıcı bilgisini ve çıkış fonksiyonunu al
+    const location = useLocation();
+    const { user, signOut } = useAuth();
+
+    const navigationItems = [
+        { icon: IconHome, label: 'Ana Sayfa', path: '/' },
+        { icon: IconSearch, label: 'Keşfet', path: '/kesfet' },
+        ...(user ? [
+            { icon: IconStar, label: 'Kütüphanem', path: '/kutuphane' },
+            { icon: IconList, label: 'Listelerim', path: '/listeler' },
+        ] : []),
+    ];
+
+    const handleNavigation = (path: string) => {
+        navigate(path);
+        close(); // Mobilde menüyü kapat
+    };
 
     return (
         <AppShell
@@ -24,14 +48,14 @@ export default function AppLayout() {
                     {/* SOL TARA: Logo ve Burger Menü */}
                     <Group>
                         <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" />
-                        <Title order={3} style={{ cursor: 'pointer' }} onClick={() => navigate('/')}>
+                        <Title order={3} style={{ cursor: 'pointer' }} onClick={() => handleNavigation('/')}>
                             🎬 Saga
                         </Title>
                     </Group>
 
                     {/* SAĞ TARAF: Menü ve Butonlar */}
                     <Group>
-                        <Button variant="subtle" onClick={() => navigate('/kesfet')}>Keşfet</Button>
+                        <Button variant="subtle" onClick={() => handleNavigation('/kesfet')}>Keşfet</Button>
 
                         {user ? (
                             // Kullanıcı giriş yapmışsa: Profil Menüsü
@@ -39,27 +63,29 @@ export default function AppLayout() {
                                 <Menu.Target>
                                     <Avatar
                                         src={user.user_metadata.avatar_url}
-                                        alt={user.user_metadata.username}
+                                        alt={user.user_metadata.kullanici_adi}
                                         radius="xl"
                                         style={{ cursor: 'pointer' }}
                                         color="blue"
                                     >
-                                        {/* Avatar yoksa ismin baş harfini göster */}
-                                        {user.user_metadata.username?.[0]?.toUpperCase()}
+                                        {user.user_metadata.kullanici_adi?.[0]?.toUpperCase()}
                                     </Avatar>
                                 </Menu.Target>
 
                                 <Menu.Dropdown>
-                                    <Menu.Label>Hesabım ({user.user_metadata.username})</Menu.Label>
+                                    <Menu.Label>Hesabım ({user.user_metadata.kullanici_adi})</Menu.Label>
 
                                     <Menu.Item
-                                        leftSection={<User style={{ width: rem(14), height: rem(14) }} />}
-                                        onClick={() => navigate(`/profil/${user.user_metadata.username}`)}
+                                        leftSection={<IconUser style={{ width: rem(14), height: rem(14) }} />}
+                                        onClick={() => navigate(`/profil/${user.user_metadata.kullanici_adi}`)}
                                     >
                                         Profilim
                                     </Menu.Item>
 
-                                    <Menu.Item leftSection={<Settings style={{ width: rem(14), height: rem(14) }} />}>
+                                    <Menu.Item 
+                                        leftSection={<IconSettings style={{ width: rem(14), height: rem(14) }} />}
+                                        onClick={() => navigate('/ayarlar')}
+                                    >
                                         Ayarlar
                                     </Menu.Item>
 
@@ -67,7 +93,7 @@ export default function AppLayout() {
 
                                     <Menu.Item
                                         color="red"
-                                        leftSection={<LogOut style={{ width: rem(14), height: rem(14) }} />}
+                                        leftSection={<IconLogout style={{ width: rem(14), height: rem(14) }} />}
                                         onClick={() => {
                                             signOut();
                                             navigate('/giris');
@@ -86,8 +112,20 @@ export default function AppLayout() {
             </AppShell.Header>
 
             <AppShell.Navbar p="md">
-                {/* Buraya Sidebar linkleri gelecek */}
-                <div>Sol Menü (Yakında)</div>
+                <ScrollArea>
+                    <Stack gap="xs">
+                        {navigationItems.map((item) => (
+                            <NavLink
+                                key={item.path}
+                                label={item.label}
+                                leftSection={<item.icon size={20} stroke={1.5} />}
+                                active={location.pathname === item.path}
+                                onClick={() => handleNavigation(item.path)}
+                                style={{ borderRadius: 'var(--mantine-radius-md)' }}
+                            />
+                        ))}
+                    </Stack>
+                </ScrollArea>
             </AppShell.Navbar>
 
             <AppShell.Main>

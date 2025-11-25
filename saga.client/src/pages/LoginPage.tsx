@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { TextInput, PasswordInput, Checkbox, Anchor, Paper, Title, Text, Container, Group, Button } from '@mantine/core';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../services/supabase';
-import toast from 'react-hot-toast';
+import { notifications } from '@mantine/notifications';
 
 export default function LoginPage() {
     const [email, setEmail] = useState('');
@@ -22,10 +22,18 @@ export default function LoginPage() {
 
             if (error) throw error;
 
-            toast.success('Giriş başarılı! Yönlendiriliyorsunuz...');
+            notifications.show({
+                title: 'Başarılı',
+                message: 'Giriş başarılı! Yönlendiriliyorsunuz...',
+                color: 'green',
+            });
             navigate('/'); // Ana sayfaya git
         } catch (error: any) {
-            toast.error(error.message || 'Giriş yapılırken hata oluştu.');
+            notifications.show({
+                title: 'Hata',
+                message: error.message || 'Giriş yapılırken hata oluştu.',
+                color: 'red',
+            });
         } finally {
             setLoading(false);
         }

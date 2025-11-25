@@ -46,5 +46,39 @@ export const icerikService = {
             params: { q: query }
         });
         return response.data;
+    },
+
+    // Filtreli arama
+    filter: async (params: {
+        tur?: 'film' | 'kitap';
+        turler?: string[]; // Film türleri veya kitap kategorileri
+        minPuan?: number;
+        maxPuan?: number;
+        yil?: number;
+        minYil?: number;
+        maxYil?: number;
+        page?: number;
+        limit?: number;
+    }) => {
+        const response = await api.get<{ items: Icerik[]; toplam: number }>('/icerik/filtrele', { params });
+        return response.data;
+    },
+
+    // En yüksek puanlılar
+    getTopRated: async (params?: { tur?: 'film' | 'kitap'; limit?: number }) => {
+        const response = await api.get<Icerik[]>('/icerik/en-yuksek-puanlilar', { params });
+        return response.data;
+    },
+
+    // Yeni içerikler
+    getRecent: async (params?: { tur?: 'film' | 'kitap'; limit?: number }) => {
+        const response = await api.get<Icerik[]>('/icerik/yeni', { params });
+        return response.data;
+    },
+
+    // Önerilen içerikler (login gerekli)
+    getRecommended: async (params?: { limit?: number }) => {
+        const response = await api.get<Icerik[]>('/icerik/onerilenler', { params });
+        return response.data;
     }
 };

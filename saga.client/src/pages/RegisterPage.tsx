@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { TextInput, PasswordInput, Anchor, Paper, Title, Text, Container, Button } from '@mantine/core';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../services/supabase';
-import toast from 'react-hot-toast';
+import { notifications } from '@mantine/notifications';
 
 export default function RegisterPage() {
     const [email, setEmail] = useState('');
@@ -31,11 +31,21 @@ export default function RegisterPage() {
 
             if (error) throw error;
 
-            toast.success('Kayıt başarılı! Lütfen e-postanızı kontrol edin veya giriş yapın.');
+            notifications.show({
+                title: 'Başarılı',
+                message: 'Kayıt başarılı! Lütfen e-postanızı kontrol edin veya giriş yapın.',
+                color: 'green',
+            });
             navigate('/giris');
 
         } catch (error: any) {
-            toast.error(error.message || 'Kayıt olurken hata oluştu.');
+            console.error("❌ Kayıt Hatası Detayı:", error);
+            const errorMessage = error?.message || error?.error_description || 'Kayıt olurken hata oluştu.';
+            notifications.show({
+                title: 'Hata',
+                message: errorMessage,
+                color: 'red',
+            });
         } finally {
             setLoading(false);
         }

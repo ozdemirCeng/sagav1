@@ -12,7 +12,6 @@ namespace Saga.Server.DTOs
         public string? Baslik { get; set; }
 
         [Required]
-        [MinLength(10, ErrorMessage = "Yorum en az 10 karakter olmalıdır")]
         [MaxLength(5000)]
         public string Icerik { get; set; } = null!;
 
@@ -29,7 +28,6 @@ namespace Saga.Server.DTOs
         public string? Baslik { get; set; }
 
         [Required]
-        [MinLength(10, ErrorMessage = "Yorum en az 10 karakter olmalıdır")]
         [MaxLength(5000)]
         public string Icerik { get; set; } = null!;
 

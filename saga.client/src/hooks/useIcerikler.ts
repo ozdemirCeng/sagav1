@@ -10,6 +10,30 @@ export const usePopularContent = () => {
     });
 };
 
+// En Yüksek Puanlılar
+export const useTopRatedContent = (tur?: 'film' | 'kitap') => {
+    return useQuery({
+        queryKey: ['icerik', 'top-rated', tur],
+        queryFn: () => icerikService.getTopRated({ tur }),
+    });
+};
+
+// Yeni İçerikler
+export const useRecentContent = (tur?: 'film' | 'kitap') => {
+    return useQuery({
+        queryKey: ['icerik', 'recent', tur],
+        queryFn: () => icerikService.getRecent({ tur }),
+    });
+};
+
+// Önerilen İçerikler
+export const useRecommendedContent = () => {
+    return useQuery({
+        queryKey: ['icerik', 'recommended'],
+        queryFn: () => icerikService.getRecommended(),
+    });
+};
+
 // Detay Getir
 export const useContentDetail = (id: string | undefined) => {
     return useQuery({
@@ -25,6 +49,25 @@ export const useSearchContent = (query: string) => {
         queryKey: ['icerik', 'arama', query],
         queryFn: () => icerikService.search(query),
         enabled: query.length > 2, // 2 harften azsa arama yapma
+    });
+};
+
+// Filtreli Arama
+export const useFilteredContent = (filters: {
+    tur?: 'film' | 'kitap';
+    turler?: string[];
+    minPuan?: number;
+    maxPuan?: number;
+    yil?: number;
+    minYil?: number;
+    maxYil?: number;
+    page?: number;
+    limit?: number;
+}) => {
+    return useQuery({
+        queryKey: ['icerik', 'filter', filters],
+        queryFn: () => icerikService.filter(filters),
+        enabled: Object.keys(filters).length > 0,
     });
 };
 

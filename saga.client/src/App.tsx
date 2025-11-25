@@ -1,10 +1,12 @@
 ﻿import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { MantineProvider } from '@mantine/core';
+import { Notifications } from '@mantine/notifications';
 import '@mantine/core/styles.css';
-import { Toaster } from 'react-hot-toast';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'; // <--- EKLENDİ (1)
+import '@mantine/notifications/styles.css';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import { AuthProvider } from './context/AuthContext';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import AppLayout from './layout/AppLayout';
 import HomePage from './pages/HomePage';
 import ExplorePage from './pages/ExplorePage';
@@ -14,7 +16,7 @@ import ContentDetailPage from './pages/ContentDetailPage';
 import ProfilePage from './pages/ProfilePage';
 
 // Client örneğini oluştur (Cache ayarlarıyla)
-const queryClient = new QueryClient({ // <--- EKLENDİ (2)
+const queryClient = new QueryClient({
     defaultOptions: {
         queries: {
             staleTime: 1000 * 60 * 5, // Veriler 5 dakika taze sayılsın (tekrar istek atma)
@@ -26,10 +28,11 @@ const queryClient = new QueryClient({ // <--- EKLENDİ (2)
 function App() {
     return (
         <MantineProvider>
-            <QueryClientProvider client={queryClient}> {/* <--- EKLENDİ (3): En dışa sarmaladık */}
+            <Notifications position="top-right" zIndex={1000} />
+            <QueryClientProvider client={queryClient}>
                 <AuthProvider>
-                    <BrowserRouter>
-                        <Toaster position="top-right" />
+                    <ErrorBoundary>
+                        <BrowserRouter>
                         <Routes>
                             {/* Public Routes */}
                             <Route path="/giris" element={<LoginPage />} />
@@ -45,9 +48,10 @@ function App() {
 
                             <Route path="*" element={<Navigate to="/" replace />} />
                         </Routes>
-                    </BrowserRouter>
+                        </BrowserRouter>
+                    </ErrorBoundary>
                 </AuthProvider>
-            </QueryClientProvider> {/* <--- EKLENDİ */}
+            </QueryClientProvider>
         </MantineProvider>
     );
 }

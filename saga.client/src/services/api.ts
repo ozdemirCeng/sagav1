@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { supabase } from './supabase';
-import toast from 'react-hot-toast';
+import { notifications } from '@mantine/notifications';
 
 // Backend'in çalıştığı adres
 const API_URL = 'http://localhost:5054/api';
@@ -38,7 +38,11 @@ api.interceptors.response.use((response) => {
     if (error.response?.status === 401) {
         console.warn("Oturum süresi dolmuş veya yetkisiz erişim.");
     } else {
-        toast.error(message);
+        notifications.show({
+            title: 'Hata',
+            message: message,
+            color: 'red',
+        });
     }
 
     return Promise.reject(error);

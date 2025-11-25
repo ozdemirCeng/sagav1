@@ -6,6 +6,7 @@ using Saga.Server.Data;
 using Saga.Server.Models;
 using Saga.Server.Services;
 using Saga.Server.Middleware;
+using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -43,28 +44,48 @@ builder.Services.AddCors(options =>
 
 // 4. AUTH - SUPABASE JWT VALIDATION
 var supabaseUrl = builder.Configuration["Supabase:Url"] ?? throw new Exception("Supabase URL bulunamadı!");
+var supabaseJwtSecret = builder.Configuration["Supabase:JwtSecret"] ?? throw new Exception("Supabase JWT Secret bulunamadı!");
 var supabaseProjectRef = new Uri(supabaseUrl).Host.Split('.')[0]; // iabkzwsosqpcghjqkbzt
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
-        options.Authority = $"{supabaseUrl}/auth/v1";
-        options.Audience = "authenticated";
-        options.RequireHttpsMetadata = true;
-        
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(supabaseJwtSecret)),
             ValidateIssuer = true,
             ValidIssuer = $"{supabaseUrl}/auth/v1",
             ValidateAudience = true,
             ValidAudience = "authenticated",
             ValidateLifetime = true,
-            ClockSkew = TimeSpan.FromMinutes(5)
+            ClockSkew = TimeSpan.FromMinutes(5),
+            NameClaimType = "sub" // Supabase'de user ID "sub" claim'inde
         };
-
-        // JWKS endpoint (modern ECC P-256 keys)
-        options.MetadataAddress = $"{supabaseUrl}/auth/v1/.well-known/jwks.json";
+        
+        // Debug için JWT hatalarını loglayalım
+        options.Events = new JwtBearerEvents
+        {
+            OnAuthenticationFailed = context =>
+            {
+                Console.WriteLine($"🔴 JWT Authentication failed: {context.Exception.Message}");
+                return Task.CompletedTask;
+            },
+            OnTokenValidated = context =>
+            {
+                Console.WriteLine($"✅ JWT Token validated successfully for user: {context.Principal?.FindFirst("sub")?.Value}");
+                return Task.CompletedTask;
+            },
+            OnMessageReceived = context =>
+            {
+                var token = context.Request.Headers["Authorization"].ToString();
+                if (!string.IsNullOrEmpty(token))
+                {
+                    Console.WriteLine($"📩 Received token: {token.Substring(0, Math.Min(50, token.Length))}...");
+                }
+                return Task.CompletedTask;
+            }
+        };
     });
 
 builder.Services.AddControllers();
