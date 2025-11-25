@@ -20,6 +20,35 @@ namespace Saga.Server.Controllers
             _logger = logger;
         }
 
+        // GET: api/liste
+        // Kullanıcının kendi listelerini getir
+        [HttpGet]
+        [Authorize]
+        public async Task<ActionResult<List<ListeListDto>>> GetMyLists()
+        {
+            var kullaniciId = GetCurrentUserId();
+
+            var listeler = await _context.Listeler
+                .Include(l => l.Kullanici)
+                .Where(l => l.KullaniciId == kullaniciId && !l.Silindi)
+                .AsNoTracking()
+                .OrderByDescending(l => l.GuncellemeZamani)
+                .ToListAsync();
+
+            var response = listeler.Select(l => new ListeListDto
+            {
+                Id = l.Id,
+                KullaniciAdi = l.Kullanici.KullaniciAdi,
+                Ad = l.Ad,
+                Tur = l.Tur.ToString(),
+                IcerikSayisi = l.IcerikSayisi,
+                HerkeseAcik = l.HerkeseAcik,
+                OlusturulmaZamani = l.OlusturulmaZamani
+            }).ToList();
+
+            return Ok(response);
+        }
+
         // POST: api/liste
         [HttpPost]
         [Authorize]
@@ -272,6 +301,45 @@ namespace Saga.Server.Controllers
             }).ToList();
 
             return Ok(response);
+        }
+
+        // GET: api/liste/icerik/{icerikId}
+        // Belirli bir içeriğin hangi listelerde olduğunu getir
+        [HttpGet("icerik/{icerikId}")]
+        [Authorize]
+        public async Task<ActionResult<List<ListeListDto>>> GetIcerikListeleri(long icerikId)
+        {
+            try
+            {
+                var kullaniciId = GetCurrentUserId();
+
+                // Kullanıcının listelerinden bu içeriği içerenleri getir
+                var listeler = await _context.Listeler
+                    .Include(l => l.Kullanici)
+                    .Include(l => l.Icerikler)
+                    .Where(l => l.KullaniciId == kullaniciId && !l.Silindi && l.Icerikler.Any(li => li.IcerikId == icerikId))
+                    .AsNoTracking()
+                    .OrderByDescending(l => l.GuncellemeZamani)
+                    .ToListAsync();
+
+                var response = listeler.Select(l => new ListeListDto
+                {
+                    Id = l.Id,
+                    KullaniciAdi = l.Kullanici.KullaniciAdi,
+                    Ad = l.Ad,
+                    Tur = l.Tur.ToString(),
+                    IcerikSayisi = l.IcerikSayisi,
+                    HerkeseAcik = l.HerkeseAcik,
+                    OlusturulmaZamani = l.OlusturulmaZamani
+                }).ToList();
+
+                return Ok(response);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "İçerik listeleri getirilemedi: {IcerikId}", icerikId);
+                return StatusCode(500, new { message = "İçerik listeleri getirilemedi." });
+            }
         }
 
         // POST: api/liste/{id}/icerik

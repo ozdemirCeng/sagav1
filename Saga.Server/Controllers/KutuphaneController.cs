@@ -268,9 +268,9 @@ namespace Saga.Server.Controllers
             return Ok(response);
         }
 
-        // GET: api/kutuphane/icerik/{icerikId}/benim
-        // Proje İsterler 2.1.4: Kullanıcının bu içerik için kütüphane durumunu getir
-        [HttpGet("icerik/{icerikId}/benim")]
+        // GET: api/kutuphane/icerik/{icerikId}
+        // Frontend service için authenticated user'ın bu içerik için kütüphane durumunu getir
+        [HttpGet("icerik/{icerikId}")]
         [Authorize]
         public async Task<ActionResult<KutuphaneDurumDto>> GetKullaniciIcerikDurumu(long icerikId)
         {

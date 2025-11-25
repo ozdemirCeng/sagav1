@@ -8,6 +8,7 @@ namespace Saga.Server.DTOs
         public long Id { get; set; }
         public string Baslik { get; set; } = null!;
         public string Tur { get; set; } = null!;
+        public string? Aciklama { get; set; }
         public string? PosterUrl { get; set; }
         public decimal OrtalamaPuan { get; set; }
         public int PuanlamaSayisi { get; set; }

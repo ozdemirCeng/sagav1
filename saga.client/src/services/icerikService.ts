@@ -5,6 +5,7 @@ export interface Icerik {
     id: number;
     baslik: string;
     tur: 'film' | 'kitap';
+    aciklama?: string | null;
     posterUrl: string | null;
     ortalamaPuan: number;
     populerlikSkoru?: number;
