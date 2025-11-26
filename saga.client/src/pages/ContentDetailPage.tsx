@@ -22,6 +22,7 @@ import {
   TextInput,
   Menu,
   ActionIcon,
+  Tooltip,
 } from '@mantine/core';
 import { useState } from 'react';
 import { 
@@ -72,6 +73,7 @@ export default function ContentDetailPage() {
         queryKey: ['kutuphane-durum', numericContentId],
         queryFn: () => kutuphaneService.getByIcerik(numericContentId),
         enabled: !!user && hasValidContentId,
+        retry: false, // 404 için retry yapma
     });
 
     // Kullanıcının listeleri
@@ -228,7 +230,14 @@ export default function ContentDetailPage() {
                     <Title mt="xs" mb="md">{icerik.baslik}</Title>
 
                     <Group mb="lg">
-                        <Text size="xl" fw={700} c="yellow">⭐ {icerik.ortalamaPuan.toFixed(1)}</Text>
+                        <Tooltip label="Platform kullanıcılarının ortalama puanı">
+                            <Group gap={4}>
+                                <Text size="xl" fw={700} c="yellow">⭐ {icerik.ortalamaPuan.toFixed(1)}</Text>
+                                {icerik.puanlamaSayisi > 0 && (
+                                    <Text size="sm" c="dimmed">({icerik.puanlamaSayisi} oy)</Text>
+                                )}
+                            </Group>
+                        </Tooltip>
                         <Text c="dimmed">({icerik.yayinTarihi})</Text>
                     </Group>
 

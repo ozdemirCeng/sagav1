@@ -8,7 +8,6 @@ import {
   IconHome,
   IconSearch,
   IconStar,
-  IconBookmark,
   IconList,
 } from '@tabler/icons-react';
 import { useAuth } from '../context/AuthContext';

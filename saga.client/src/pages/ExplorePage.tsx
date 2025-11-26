@@ -13,23 +13,26 @@ import {
   Stack,
   Button,
   NumberInput,
-  Loader,
-  Center,
   Paper,
   Flex,
   ActionIcon,
   Collapse,
   Tabs,
+  Box,
+  Loader,
+  Overlay,
+  Tooltip,
 } from '@mantine/core';
-import { IconSearch, IconFilter, IconX, IconStar } from '@tabler/icons-react';
-import { useSearchContent, useFilteredContent } from '../hooks/useIcerikler';
+import { IconSearch, IconFilter, IconX, IconStar, IconTrendingUp, IconArrowRight, IconFlame } from '@tabler/icons-react';
+import { useSearchContent, useFilteredContent, usePopularContent, useTopRatedContent } from '../hooks/useIcerikler';
 import { useNavigate } from 'react-router';
 import { useDebouncedValue } from '@mantine/hooks';
 import { ContentCardSkeleton } from '../components/ContentCardSkeleton';
 import { EmptyState } from '../components/EmptyState';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { externalApiService } from '../services/externalApiService';
 import { notifications } from '@mantine/notifications';
+import { useAuth } from '../context/AuthContext';
 
 const filmTurleri = [
   'Aksiyon',
@@ -71,13 +74,144 @@ const kitapKategorileri = [
   'İş ve Ekonomi',
 ];
 
+// Vitrin Modülleri Bileşeni (En Popülerler, En Yüksek Puanlılar)
+function VitrinModulleri({ navigate }: { navigate: (path: string) => void }) {
+  const { data: popularContent, isLoading: popularLoading } = usePopularContent();
+  const { data: topRatedContent, isLoading: topRatedLoading } = useTopRatedContent();
+
+  const renderCompactCard = (icerik: any) => (
+    <Card
+      key={icerik.id}
+      shadow="sm"
+      padding="sm"
+      radius="md"
+      withBorder
+      style={{
+        cursor: 'pointer',
+        transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+        minWidth: 140,
+        maxWidth: 160,
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.transform = 'translateY(-4px)';
+        e.currentTarget.style.boxShadow = '0 8px 24px rgba(0, 0, 0, 0.12)';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.transform = 'translateY(0)';
+        e.currentTarget.style.boxShadow = '';
+      }}
+      onClick={() => navigate(`/icerik/${icerik.id}`)}
+    >
+      <Card.Section>
+        <Image
+          src={icerik.posterUrl || 'https://placehold.co/140x200/e2e8f0/64748b?text=No+Image'}
+          height={200}
+          alt={icerik.baslik}
+          fallbackSrc="https://placehold.co/140x200/e2e8f0/64748b?text=No+Image"
+        />
+      </Card.Section>
+      <Stack gap={4} mt="xs">
+        <Text fw={500} lineClamp={1} size="xs">
+          {icerik.baslik}
+        </Text>
+        <Flex justify="space-between" align="center">
+          <Badge size="xs" color={icerik.tur === 'film' ? 'blue' : 'green'} variant="light">
+            {icerik.tur === 'film' ? 'Film' : 'Kitap'}
+          </Badge>
+          {(icerik.ortalamaPuan ?? 0) > 0 && (
+            <Group gap={2}>
+              <IconStar size={12} fill="gold" color="gold" />
+              <Text size="xs" fw={500}>
+                {icerik.ortalamaPuan.toFixed(1)}
+              </Text>
+            </Group>
+          )}
+        </Flex>
+      </Stack>
+    </Card>
+  );
+
+  return (
+    <Stack gap="lg">
+      {/* En Popüler İçerikler */}
+      <Box>
+        <Group justify="space-between" mb="sm">
+          <Group gap="xs">
+            <IconFlame size={20} color="orange" />
+            <Title order={3}>En Popülerler</Title>
+          </Group>
+          <Button
+            variant="subtle"
+            size="xs"
+            rightSection={<IconArrowRight size={14} />}
+            onClick={() => {
+              // Filtre ile popüler içerikleri göster
+            }}
+          >
+            Tümünü Gör
+          </Button>
+        </Group>
+        {popularLoading ? (
+          <Grid>
+            {[...Array(6)].map((_, index) => (
+              <Grid.Col key={index} span={{ base: 4, xs: 3, sm: 2, md: 2, lg: 1.5 }}>
+                <ContentCardSkeleton />
+              </Grid.Col>
+            ))}
+          </Grid>
+        ) : (
+          <Flex gap="md" wrap="nowrap" style={{ overflowX: 'auto', paddingBottom: '8px' }}>
+            {popularContent?.slice(0, 8).map(renderCompactCard)}
+          </Flex>
+        )}
+      </Box>
+
+      {/* En Yüksek Puanlılar */}
+      <Box>
+        <Group justify="space-between" mb="sm">
+          <Group gap="xs">
+            <IconTrendingUp size={20} color="green" />
+            <Title order={3}>En Yüksek Puanlılar</Title>
+          </Group>
+          <Button
+            variant="subtle"
+            size="xs"
+            rightSection={<IconArrowRight size={14} />}
+            onClick={() => {
+              // Filtre ile yüksek puanlı içerikleri göster
+            }}
+          >
+            Tümünü Gör
+          </Button>
+        </Group>
+        {topRatedLoading ? (
+          <Grid>
+            {[...Array(6)].map((_, index) => (
+              <Grid.Col key={index} span={{ base: 4, xs: 3, sm: 2, md: 2, lg: 1.5 }}>
+                <ContentCardSkeleton />
+              </Grid.Col>
+            ))}
+          </Grid>
+        ) : (
+          <Flex gap="md" wrap="nowrap" style={{ overflowX: 'auto', paddingBottom: '8px' }}>
+            {topRatedContent?.slice(0, 8).map(renderCompactCard)}
+          </Flex>
+        )}
+      </Box>
+    </Stack>
+  );
+}
+
 export default function ExplorePage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
   
   // Arama state
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedQuery] = useDebouncedValue(searchQuery, 500);
   const [activeTab, setActiveTab] = useState<'database' | 'tmdb' | 'books'>('database');
+  const [importingId, setImportingId] = useState<string | null>(null);
 
   // Filtre state
   const [showFilters, setShowFilters] = useState(false);
@@ -87,6 +221,73 @@ export default function ExplorePage() {
   const [maxPuan, setMaxPuan] = useState<number | undefined>(undefined);
   const [minYil, setMinYil] = useState<number | undefined>(undefined);
   const [maxYil, setMaxYil] = useState<number | undefined>(undefined);
+
+  // Import mutations
+  const importTmdbMutation = useMutation({
+    mutationFn: (tmdbId: string) => externalApiService.importTmdbFilm(tmdbId),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['icerikler'] });
+      notifications.show({
+        title: 'Başarılı',
+        message: 'Film kütüphaneye eklendi!',
+        color: 'green',
+      });
+      navigate(`/icerik/${data.id}`);
+    },
+    onError: () => {
+      notifications.show({
+        title: 'Hata',
+        message: 'Film eklenirken bir hata oluştu.',
+        color: 'red',
+      });
+    },
+    onSettled: () => {
+      setImportingId(null);
+    }
+  });
+
+  const importBookMutation = useMutation({
+    mutationFn: (bookId: string) => externalApiService.importGoogleBook(bookId),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['icerikler'] });
+      notifications.show({
+        title: 'Başarılı',
+        message: 'Kitap kütüphaneye eklendi!',
+        color: 'green',
+      });
+      navigate(`/icerik/${data.id}`);
+    },
+    onError: () => {
+      notifications.show({
+        title: 'Hata',
+        message: 'Kitap eklenirken bir hata oluştu.',
+        color: 'red',
+      });
+    },
+    onSettled: () => {
+      setImportingId(null);
+    }
+  });
+
+  // Harici içerik tıklama handler'ı
+  const handleExternalContentClick = (icerik: any) => {
+    if (!user) {
+      notifications.show({
+        title: 'Giriş Gerekli',
+        message: 'İçerik eklemek için giriş yapmalısınız.',
+        color: 'orange',
+      });
+      navigate('/giris');
+      return;
+    }
+
+    setImportingId(icerik.externalId);
+    if (icerik.tur === 'film') {
+      importTmdbMutation.mutate(icerik.externalId);
+    } else {
+      importBookMutation.mutate(icerik.externalId);
+    }
+  };
 
   // Arama veya filtreleme yapılıyor mu?
   const isSearching = debouncedQuery.length > 2;
@@ -321,6 +522,11 @@ export default function ExplorePage() {
         </Paper>
         )}
 
+        {/* Vitrin Modülleri - Sadece database tab ve arama/filtre yokken */}
+        {activeTab === 'database' && !isSearching && !hasFilters && (
+          <VitrinModulleri navigate={navigate} />
+        )}
+
         {/* Sonuçlar */}
         {isContentLoading ? (
           <Grid>
@@ -344,36 +550,42 @@ export default function ExplorePage() {
                     radius="md"
                     withBorder
                     style={{ 
-                      cursor: 'pointer', 
+                      cursor: importingId === icerik.externalId ? 'wait' : 'pointer', 
                       height: '100%',
                       transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+                      position: 'relative',
                     }}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.transform = 'translateY(-4px)';
-                      e.currentTarget.style.boxShadow = '0 8px 24px rgba(0, 0, 0, 0.12)';
+                      if (importingId !== icerik.externalId) {
+                        e.currentTarget.style.transform = 'translateY(-4px)';
+                        e.currentTarget.style.boxShadow = '0 8px 24px rgba(0, 0, 0, 0.12)';
+                      }
                     }}
                     onMouseLeave={(e) => {
                       e.currentTarget.style.transform = 'translateY(0)';
                       e.currentTarget.style.boxShadow = '';
                     }}
                     onClick={() => {
+                      if (importingId) return; // Başka bir import devam ediyorsa tıklamayı engelle
                       if (icerik.isExternal) {
-                        notifications.show({
-                          title: 'Henüz Eklenmemiş',
-                          message: 'Bu içerik henüz veritabanına eklenmemiş. Önce kütüphanenize ekleyin.',
-                          color: 'orange',
-                        });
+                        handleExternalContentClick(icerik);
                       } else {
                         navigate(`/icerik/${icerik.id}`);
                       }
                     }}
                   >
+                    {/* Loading overlay */}
+                    {importingId === icerik.externalId && (
+                      <Overlay color="#fff" backgroundOpacity={0.7} center zIndex={5}>
+                        <Loader size="lg" />
+                      </Overlay>
+                    )}
                     <Card.Section>
                       <Image
-                        src={icerik.posterUrl || 'https://via.placeholder.com/300x450?text=No+Image'}
+                        src={icerik.posterUrl || 'https://placehold.co/300x450/e2e8f0/64748b?text=No+Image'}
                         height={300}
                         alt={icerik.baslik}
-                        fallbackSrc="https://via.placeholder.com/300x450?text=No+Image"
+                        fallbackSrc="https://placehold.co/300x450/e2e8f0/64748b?text=No+Image"
                       />
                     </Card.Section>
 
@@ -388,12 +600,17 @@ export default function ExplorePage() {
                         </Badge>
 
                         {(icerik.ortalamaPuan ?? 0) > 0 && (
-                          <Group gap={4}>
-                            <IconStar size={14} fill="gold" color="gold" />
-                            <Text size="xs" fw={500}>
-                              {icerik.ortalamaPuan.toFixed(1)}
-                            </Text>
-                          </Group>
+                          <Tooltip 
+                            label={icerik.isExternal ? (icerik.tur === 'film' ? 'TMDB Puanı' : 'Google Puanı') : 'Platform Puanı'}
+                            position="top"
+                          >
+                            <Group gap={4}>
+                              <IconStar size={14} fill="gold" color="gold" />
+                              <Text size="xs" fw={500}>
+                                {icerik.ortalamaPuan.toFixed(1)}
+                              </Text>
+                            </Group>
+                          </Tooltip>
                         )}
                       </Flex>
 

@@ -8,6 +8,7 @@ export interface Icerik {
     aciklama?: string | null;
     posterUrl: string | null;
     ortalamaPuan: number;
+    puanlamaSayisi?: number;
     populerlikSkoru?: number;
     yayinTarihi?: string;
 }
@@ -16,6 +17,10 @@ export interface IcerikDetay extends Icerik {
     aciklama: string | null;
     yonetmen?: string;
     oyuncular?: string[];
+    puanlamaSayisi: number;
+    yorumSayisi?: number;
+    listeyeEklenmeSayisi?: number;
+    goruntulemeSayisi?: number;
     kullaniciPuani?: number; // Kullanıcının verdiği puan
     kullanicininDurumu?: string; // izlendi/okundu vs.
 }

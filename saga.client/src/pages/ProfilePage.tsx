@@ -14,8 +14,6 @@ import {
   Card,
   Image,
   Badge,
-  Loader,
-  Center,
   Modal,
   TextInput,
   Textarea,
@@ -97,10 +95,13 @@ export default function ProfilePage() {
 
   // Takip et/Bırak mutation
   const followMutation = useMutation({
-    mutationFn: (kullaniciId: string) =>
-      profil?.takipEdiyorMu
-        ? kullaniciService.unfollow(kullaniciId)
-        : kullaniciService.follow(kullaniciId),
+    mutationFn: async (kullaniciId: string) => {
+      if (profil?.takipEdiyorMu) {
+        await kullaniciService.unfollow(kullaniciId);
+      } else {
+        await kullaniciService.follow(kullaniciId);
+      }
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['profil'] });
       notifications.show({
@@ -324,7 +325,7 @@ export default function ProfilePage() {
                           width={60}
                           height={90}
                           radius="sm"
-                          fallbackSrc="https://via.placeholder.com/60x90"
+                          fallbackSrc="https://placehold.co/60x90/e2e8f0/64748b?text=No+Image"
                         />
                       )}
                       <Stack gap={4} style={{ flex: 1 }}>

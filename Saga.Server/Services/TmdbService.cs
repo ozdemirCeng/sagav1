@@ -11,6 +11,7 @@ namespace Saga.Server.Services
         private readonly SagaDbContext _context;
         private readonly ILogger<TmdbService> _logger;
         private readonly string _apiKey;
+        private readonly string _bearerToken;
         private const string BaseUrl = "https://api.themoviedb.org/3";
         private const string ImageBaseUrl = "https://image.tmdb.org/t/p/w500";
 
@@ -24,13 +25,24 @@ namespace Saga.Server.Services
             _context = context;
             _logger = logger;
             _apiKey = configuration["TMDB:ApiKey"] ?? throw new InvalidOperationException("TMDB API Key bulunamadı!");
+            _bearerToken = configuration["TMDB:BearerToken"] ?? "";
+            
+            // Bearer token varsa Authorization header ekle
+            if (!string.IsNullOrEmpty(_bearerToken))
+            {
+                _httpClient.DefaultRequestHeaders.Authorization = 
+                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _bearerToken);
+            }
         }
 
         public async Task<TmdbFilmDto?> GetFilmByIdAsync(string tmdbId)
         {
             try
             {
-                var response = await _httpClient.GetAsync($"{BaseUrl}/movie/{tmdbId}?api_key={_apiKey}&language=tr-TR");
+                var url = !string.IsNullOrEmpty(_bearerToken)
+                    ? $"{BaseUrl}/movie/{tmdbId}?language=tr-TR"
+                    : $"{BaseUrl}/movie/{tmdbId}?api_key={_apiKey}&language=tr-TR";
+                var response = await _httpClient.GetAsync(url);
                 
                 if (!response.IsSuccessStatusCode)
                 {
@@ -44,18 +56,18 @@ namespace Saga.Server.Services
                 return new TmdbFilmDto
                 {
                     Id = movieData.GetProperty("id").GetInt32().ToString(),
-                    Title = movieData.TryGetProperty("title", out var title) ? title.GetString() ?? "" : "",
-                    Overview = movieData.TryGetProperty("overview", out var overview) ? overview.GetString() : null,
-                    PosterPath = movieData.TryGetProperty("poster_path", out var poster) && !poster.ValueEquals("null")
+                    Baslik = movieData.TryGetProperty("title", out var title) ? title.GetString() ?? "" : "",
+                    Aciklama = movieData.TryGetProperty("overview", out var overview) ? overview.GetString() : null,
+                    PosterUrl = movieData.TryGetProperty("poster_path", out var poster) && !poster.ValueEquals("null")
                         ? ImageBaseUrl + poster.GetString()
                         : null,
-                    BackdropPath = movieData.TryGetProperty("backdrop_path", out var backdrop) && !backdrop.ValueEquals("null")
+                    ArkaplanUrl = movieData.TryGetProperty("backdrop_path", out var backdrop) && !backdrop.ValueEquals("null")
                         ? "https://image.tmdb.org/t/p/original" + backdrop.GetString()
                         : null,
-                    ReleaseDate = movieData.TryGetProperty("release_date", out var date) ? date.GetString() : null,
-                    VoteAverage = movieData.TryGetProperty("vote_average", out var avg) ? avg.GetDouble() : 0,
-                    VoteCount = movieData.TryGetProperty("vote_count", out var count) ? count.GetInt32() : 0,
-                    OriginalLanguage = movieData.TryGetProperty("original_language", out var lang) ? lang.GetString() : null
+                    YayinTarihi = movieData.TryGetProperty("release_date", out var date) ? date.GetString() : null,
+                    Puan = movieData.TryGetProperty("vote_average", out var avg) ? avg.GetDouble() : 0,
+                    OySayisi = movieData.TryGetProperty("vote_count", out var count) ? count.GetInt32() : 0,
+                    OrijinalDil = movieData.TryGetProperty("original_language", out var lang) ? lang.GetString() : null
                 };
             }
             catch (Exception ex)
@@ -70,8 +82,10 @@ namespace Saga.Server.Services
             try
             {
                 var encodedQuery = Uri.EscapeDataString(query);
-                var response = await _httpClient.GetAsync(
-                    $"{BaseUrl}/search/movie?api_key={_apiKey}&language=tr-TR&query={encodedQuery}&page={page}");
+                var url = !string.IsNullOrEmpty(_bearerToken)
+                    ? $"{BaseUrl}/search/movie?language=tr-TR&query={encodedQuery}&page={page}"
+                    : $"{BaseUrl}/search/movie?api_key={_apiKey}&language=tr-TR&query={encodedQuery}&page={page}";
+                var response = await _httpClient.GetAsync(url);
 
                 if (!response.IsSuccessStatusCode)
                 {
@@ -91,14 +105,14 @@ namespace Saga.Server.Services
                         results.Add(new TmdbFilmDto
                         {
                             Id = movie.GetProperty("id").GetInt32().ToString(),
-                            Title = movie.TryGetProperty("title", out var title) ? title.GetString() ?? "" : "",
-                            Overview = movie.TryGetProperty("overview", out var overview) ? overview.GetString() : null,
-                            PosterPath = movie.TryGetProperty("poster_path", out var poster) && !poster.ValueEquals("null")
+                            Baslik = movie.TryGetProperty("title", out var title) ? title.GetString() ?? "" : "",
+                            Aciklama = movie.TryGetProperty("overview", out var overview) ? overview.GetString() : null,
+                            PosterUrl = movie.TryGetProperty("poster_path", out var poster) && !poster.ValueEquals("null")
                                 ? ImageBaseUrl + poster.GetString()
                                 : null,
-                            ReleaseDate = movie.TryGetProperty("release_date", out var date) ? date.GetString() : null,
-                            VoteAverage = movie.TryGetProperty("vote_average", out var avg) ? avg.GetDouble() : 0,
-                            VoteCount = movie.TryGetProperty("vote_count", out var count) ? count.GetInt32() : 0
+                            YayinTarihi = movie.TryGetProperty("release_date", out var date) ? date.GetString() : null,
+                            Puan = movie.TryGetProperty("vote_average", out var avg) ? avg.GetDouble() : 0,
+                            OySayisi = movie.TryGetProperty("vote_count", out var count) ? count.GetInt32() : 0
                         });
                     }
                 }
@@ -116,8 +130,10 @@ namespace Saga.Server.Services
         {
             try
             {
-                var response = await _httpClient.GetAsync(
-                    $"{BaseUrl}/movie/popular?api_key={_apiKey}&language=tr-TR&page={page}");
+                var url = !string.IsNullOrEmpty(_bearerToken)
+                    ? $"{BaseUrl}/movie/popular?language=tr-TR&page={page}"
+                    : $"{BaseUrl}/movie/popular?api_key={_apiKey}&language=tr-TR&page={page}";
+                var response = await _httpClient.GetAsync(url);
 
                 if (!response.IsSuccessStatusCode)
                 {
@@ -140,8 +156,10 @@ namespace Saga.Server.Services
         {
             try
             {
-                var response = await _httpClient.GetAsync(
-                    $"{BaseUrl}/movie/top_rated?api_key={_apiKey}&language=tr-TR&page={page}");
+                var url = !string.IsNullOrEmpty(_bearerToken)
+                    ? $"{BaseUrl}/movie/top_rated?language=tr-TR&page={page}"
+                    : $"{BaseUrl}/movie/top_rated?api_key={_apiKey}&language=tr-TR&page={page}";
+                var response = await _httpClient.GetAsync(url);
 
                 if (!response.IsSuccessStatusCode)
                 {
@@ -187,10 +205,10 @@ namespace Saga.Server.Services
                     HariciId = tmdbId,
                     ApiKaynagi = ApiKaynak.tmdb,
                     Tur = IcerikTuru.film,
-                    Baslik = filmDto.Title,
-                    Aciklama = filmDto.Overview,
-                    PosterUrl = filmDto.PosterPath,
-                    YayinTarihi = ParseDateOnly(filmDto.ReleaseDate),
+                    Baslik = filmDto.Baslik,
+                    Aciklama = filmDto.Aciklama,
+                    PosterUrl = filmDto.PosterUrl,
+                    YayinTarihi = ParseDateOnly(filmDto.YayinTarihi),
                     OlusturulmaZamani = DateTime.UtcNow
                 };
 
@@ -218,14 +236,14 @@ namespace Saga.Server.Services
                     results.Add(new TmdbFilmDto
                     {
                         Id = movie.GetProperty("id").GetInt32().ToString(),
-                        Title = movie.TryGetProperty("title", out var title) ? title.GetString() ?? "" : "",
-                        Overview = movie.TryGetProperty("overview", out var overview) ? overview.GetString() : null,
-                        PosterPath = movie.TryGetProperty("poster_path", out var poster) && !poster.ValueEquals("null")
+                        Baslik = movie.TryGetProperty("title", out var title) ? title.GetString() ?? "" : "",
+                        Aciklama = movie.TryGetProperty("overview", out var overview) ? overview.GetString() : null,
+                        PosterUrl = movie.TryGetProperty("poster_path", out var poster) && !poster.ValueEquals("null")
                             ? ImageBaseUrl + poster.GetString()
                             : null,
-                        ReleaseDate = movie.TryGetProperty("release_date", out var date) ? date.GetString() : null,
-                        VoteAverage = movie.TryGetProperty("vote_average", out var avg) ? avg.GetDouble() : 0,
-                        VoteCount = movie.TryGetProperty("vote_count", out var count) ? count.GetInt32() : 0
+                        YayinTarihi = movie.TryGetProperty("release_date", out var date) ? date.GetString() : null,
+                        Puan = movie.TryGetProperty("vote_average", out var avg) ? avg.GetDouble() : 0,
+                        OySayisi = movie.TryGetProperty("vote_count", out var count) ? count.GetInt32() : 0
                     });
                 }
             }

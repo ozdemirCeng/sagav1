@@ -7,6 +7,7 @@ export interface ExternalFilm {
     posterUrl: string;
     yayinTarihi: string;
     puan: number;
+    oySayisi?: number;
 }
 
 export interface ExternalBook {
@@ -16,6 +17,9 @@ export interface ExternalBook {
     posterUrl: string;
     yayinTarihi: string;
     yazarlar: string[];
+    kategoriler?: string[];
+    sayfaSayisi?: number;
+    ortalamaPuan?: number;
 }
 
 export const externalApiService = {
@@ -60,6 +64,18 @@ export const externalApiService = {
     // Google Books Detayı
     getGoogleBook: async (id: string) => {
         const response = await api.get<ExternalBook>(`/externalapi/books/${id}`);
+        return response.data;
+    },
+
+    // TMDB Film Import (Veritabanına ekle)
+    importTmdbFilm: async (tmdbId: string) => {
+        const response = await api.post<{ id: number }>(`/externalapi/tmdb/import/${tmdbId}`);
+        return response.data;
+    },
+
+    // Google Books Import (Veritabanına ekle)
+    importGoogleBook: async (googleBooksId: string) => {
+        const response = await api.post<{ id: number }>(`/externalapi/books/import/${googleBooksId}`);
         return response.data;
     },
 };

@@ -22,30 +22,30 @@ namespace Saga.Server.Services
     public class TmdbFilmDto
     {
         public string Id { get; set; } = null!;
-        public string Title { get; set; } = null!;
-        public string? Overview { get; set; }
-        public string? PosterPath { get; set; }
-        public string? BackdropPath { get; set; }
-        public string? ReleaseDate { get; set; }
-        public double VoteAverage { get; set; }
-        public int VoteCount { get; set; }
-        public string? OriginalLanguage { get; set; }
-        public List<int>? GenreIds { get; set; }
+        public string Baslik { get; set; } = null!;
+        public string? Aciklama { get; set; }
+        public string? PosterUrl { get; set; }
+        public string? ArkaplanUrl { get; set; }
+        public string? YayinTarihi { get; set; }
+        public double Puan { get; set; }
+        public int OySayisi { get; set; }
+        public string? OrijinalDil { get; set; }
+        public List<int>? TurIds { get; set; }
     }
 
     // Google Books DTO
     public class GoogleBookDto
     {
         public string Id { get; set; } = null!;
-        public string Title { get; set; } = null!;
-        public List<string>? Authors { get; set; }
-        public string? Description { get; set; }
-        public string? PublishedDate { get; set; }
-        public string? Thumbnail { get; set; }
-        public string? Language { get; set; }
-        public int? PageCount { get; set; }
-        public List<string>? Categories { get; set; }
-        public double? AverageRating { get; set; }
-        public int? RatingsCount { get; set; }
+        public string Baslik { get; set; } = null!;
+        public List<string>? Yazarlar { get; set; }
+        public string? Aciklama { get; set; }
+        public string? YayinTarihi { get; set; }
+        public string? PosterUrl { get; set; }
+        public string? Dil { get; set; }
+        public int? SayfaSayisi { get; set; }
+        public List<string>? Kategoriler { get; set; }
+        public double? OrtalamaPuan { get; set; }
+        public int? OySayisi { get; set; }
     }
 }

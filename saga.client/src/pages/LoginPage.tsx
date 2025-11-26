@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { TextInput, PasswordInput, Checkbox, Anchor, Paper, Title, Text, Container, Group, Button } from '@mantine/core';
+import { TextInput, PasswordInput, Checkbox, Anchor, Paper, Title, Text, Container, Group, Button, Modal, Stack } from '@mantine/core';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../services/supabase';
 import { notifications } from '@mantine/notifications';
@@ -8,6 +8,9 @@ export default function LoginPage() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
+    const [resetEmail, setResetEmail] = useState('');
+    const [resetModalOpen, setResetModalOpen] = useState(false);
+    const [resetLoading, setResetLoading] = useState(false);
     const navigate = useNavigate();
 
     const handleLogin = async (e: React.FormEvent) => {
@@ -36,6 +39,35 @@ export default function LoginPage() {
             });
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handlePasswordReset = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setResetLoading(true);
+
+        try {
+            const { error } = await supabase.auth.resetPasswordForEmail(resetEmail, {
+                redirectTo: `${window.location.origin}/sifre-sifirla`,
+            });
+
+            if (error) throw error;
+
+            notifications.show({
+                title: 'E-posta Gönderildi',
+                message: 'Şifre sıfırlama bağlantısı e-posta adresinize gönderildi. Lütfen gelen kutunuzu kontrol edin.',
+                color: 'green',
+            });
+            setResetModalOpen(false);
+            setResetEmail('');
+        } catch (error: any) {
+            notifications.show({
+                title: 'Hata',
+                message: error.message || 'Şifre sıfırlama e-postası gönderilirken hata oluştu.',
+                color: 'red',
+            });
+        } finally {
+            setResetLoading(false);
         }
     };
 
@@ -69,7 +101,12 @@ export default function LoginPage() {
 
                     <Group justify="space-between" mt="lg">
                         <Checkbox label="Beni hatırla" />
-                        <Anchor component="button" size="sm">
+                        <Anchor 
+                            component="button" 
+                            type="button"
+                            size="sm"
+                            onClick={() => setResetModalOpen(true)}
+                        >
                             Şifremi unuttum?
                         </Anchor>
                     </Group>
@@ -79,6 +116,32 @@ export default function LoginPage() {
                     </Button>
                 </form>
             </Paper>
+
+            {/* Şifre Sıfırlama Modalı */}
+            <Modal
+                opened={resetModalOpen}
+                onClose={() => setResetModalOpen(false)}
+                title="Şifre Sıfırlama"
+                centered
+            >
+                <form onSubmit={handlePasswordReset}>
+                    <Stack>
+                        <Text size="sm" c="dimmed">
+                            E-posta adresinizi girin. Size şifre sıfırlama bağlantısı göndereceğiz.
+                        </Text>
+                        <TextInput
+                            label="E-posta Adresi"
+                            placeholder="ornek@email.com"
+                            required
+                            value={resetEmail}
+                            onChange={(e) => setResetEmail(e.target.value)}
+                        />
+                        <Button type="submit" loading={resetLoading}>
+                            Sıfırlama Bağlantısı Gönder
+                        </Button>
+                    </Stack>
+                </form>
+            </Modal>
         </Container>
     );
 }

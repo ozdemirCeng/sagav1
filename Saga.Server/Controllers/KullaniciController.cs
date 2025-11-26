@@ -20,6 +20,15 @@ namespace Saga.Server.Controllers
             _logger = logger;
         }
 
+        // GET: api/kullanici/profil (Kendi profilim)
+        [HttpGet("profil")]
+        [Authorize]
+        public async Task<ActionResult<ProfilDto>> GetMyProfil()
+        {
+            var kullaniciId = GetCurrentUserId();
+            return await GetProfil(kullaniciId);
+        }
+
         // GET: api/kullanici/{id}/profil
         [HttpGet("{id}/profil")]
         public async Task<ActionResult<ProfilDto>> GetProfil(Guid id)
@@ -290,6 +299,29 @@ namespace Saga.Server.Controllers
             };
 
             return Ok(istatistik);
+        }
+
+        // GET: api/kullanici/id/{id} - ID'ye göre kullanıcı getir
+        [HttpGet("id/{id}")]
+        public async Task<ActionResult<ProfilDto>> GetKullaniciById(Guid id)
+        {
+            return await GetProfil(id);
+        }
+
+        // GET: api/kullanici/username/{kullaniciAdi} - Kullanıcı adına göre profil
+        [HttpGet("username/{kullaniciAdi}")]
+        public async Task<ActionResult<ProfilDto>> GetKullaniciByUsername(string kullaniciAdi)
+        {
+            var kullanici = await _context.Kullanicilar
+                .AsNoTracking()
+                .FirstOrDefaultAsync(k => k.KullaniciAdi == kullaniciAdi && !k.Silindi);
+
+            if (kullanici == null)
+            {
+                return NotFound(new { message = "Kullanıcı bulunamadı." });
+            }
+
+            return await GetProfil(kullanici.Id);
         }
 
         // GET: api/kullanici/ara?q={query}

@@ -7,7 +7,6 @@ namespace Saga.Server.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    [Authorize(Roles = "yonetici,moderator")]
     public class ExternalApiController : ControllerBase
     {
         private readonly ITmdbService _tmdbService;
@@ -72,6 +71,7 @@ namespace Saga.Server.Controllers
 
         // POST: api/externalapi/tmdb/import/{tmdbId}
         [HttpPost("tmdb/import/{tmdbId}")]
+        [Authorize] // Giriş yapmış tüm kullanıcılar içerik ekleyebilir
         public async Task<ActionResult<IcerikDetailDto>> ImportTmdbFilm(string tmdbId)
         {
             try
@@ -143,6 +143,7 @@ namespace Saga.Server.Controllers
 
         // POST: api/externalapi/books/import/{googleBooksId}
         [HttpPost("books/import/{googleBooksId}")]
+        [Authorize] // Giriş yapmış tüm kullanıcılar içerik ekleyebilir
         public async Task<ActionResult<IcerikDetailDto>> ImportGoogleBook(string googleBooksId)
         {
             try
@@ -183,6 +184,7 @@ namespace Saga.Server.Controllers
 
         // POST: api/externalapi/tmdb/bulk-import
         [HttpPost("tmdb/bulk-import")]
+        [Authorize(Roles = "yonetici,moderator")]
         public async Task<ActionResult> BulkImportTmdbFilms([FromBody] List<string> tmdbIds)
         {
             var imported = 0;
@@ -222,6 +224,7 @@ namespace Saga.Server.Controllers
 
         // POST: api/externalapi/books/bulk-import
         [HttpPost("books/bulk-import")]
+        [Authorize(Roles = "yonetici,moderator")]
         public async Task<ActionResult> BulkImportGoogleBooks([FromBody] List<string> googleBooksIds)
         {
             var imported = 0;

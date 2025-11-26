@@ -123,10 +123,10 @@ namespace Saga.Server.Services
                     HariciId = googleBooksId,
                     ApiKaynagi = ApiKaynak.google_books,
                     Tur = IcerikTuru.kitap,
-                    Baslik = bookDto.Title,
-                    Aciklama = bookDto.Description,
-                    PosterUrl = bookDto.Thumbnail,
-                    YayinTarihi = ParseDateOnly(bookDto.PublishedDate),
+                    Baslik = bookDto.Baslik,
+                    Aciklama = bookDto.Aciklama,
+                    PosterUrl = bookDto.PosterUrl,
+                    YayinTarihi = ParseDateOnly(bookDto.YayinTarihi),
                     OlusturulmaZamani = DateTime.UtcNow
                 };
 
@@ -157,23 +157,23 @@ namespace Saga.Server.Services
                 var dto = new GoogleBookDto
                 {
                     Id = id,
-                    Title = volumeInfo.TryGetProperty("title", out var title) ? title.GetString() ?? "" : "",
-                    Description = volumeInfo.TryGetProperty("description", out var desc) ? desc.GetString() : null,
-                    PublishedDate = volumeInfo.TryGetProperty("publishedDate", out var date) ? date.GetString() : null,
-                    Language = volumeInfo.TryGetProperty("language", out var lang) ? lang.GetString() : null,
-                    PageCount = volumeInfo.TryGetProperty("pageCount", out var pages) ? pages.GetInt32() : null
+                    Baslik = volumeInfo.TryGetProperty("title", out var title) ? title.GetString() ?? "" : "",
+                    Aciklama = volumeInfo.TryGetProperty("description", out var desc) ? desc.GetString() : null,
+                    YayinTarihi = volumeInfo.TryGetProperty("publishedDate", out var date) ? date.GetString() : null,
+                    Dil = volumeInfo.TryGetProperty("language", out var lang) ? lang.GetString() : null,
+                    SayfaSayisi = volumeInfo.TryGetProperty("pageCount", out var pages) ? pages.GetInt32() : null
                 };
 
                 // Authors
                 if (volumeInfo.TryGetProperty("authors", out var authors))
                 {
-                    dto.Authors = new List<string>();
+                    dto.Yazarlar = new List<string>();
                     foreach (var author in authors.EnumerateArray())
                     {
                         var authorName = author.GetString();
                         if (!string.IsNullOrEmpty(authorName))
                         {
-                            dto.Authors.Add(authorName);
+                            dto.Yazarlar.Add(authorName);
                         }
                     }
                 }
@@ -181,13 +181,13 @@ namespace Saga.Server.Services
                 // Categories
                 if (volumeInfo.TryGetProperty("categories", out var categories))
                 {
-                    dto.Categories = new List<string>();
+                    dto.Kategoriler = new List<string>();
                     foreach (var category in categories.EnumerateArray())
                     {
                         var categoryName = category.GetString();
                         if (!string.IsNullOrEmpty(categoryName))
                         {
-                            dto.Categories.Add(categoryName);
+                            dto.Kategoriler.Add(categoryName);
                         }
                     }
                 }
@@ -197,19 +197,19 @@ namespace Saga.Server.Services
                 {
                     if (imageLinks.TryGetProperty("thumbnail", out var thumbnail))
                     {
-                        dto.Thumbnail = thumbnail.GetString();
+                        dto.PosterUrl = thumbnail.GetString();
                     }
                     else if (imageLinks.TryGetProperty("smallThumbnail", out var smallThumbnail))
                     {
-                        dto.Thumbnail = smallThumbnail.GetString();
+                        dto.PosterUrl = smallThumbnail.GetString();
                     }
                 }
 
                 // Ratings
-                dto.AverageRating = volumeInfo.TryGetProperty("averageRating", out var avgRating) 
+                dto.OrtalamaPuan = volumeInfo.TryGetProperty("averageRating", out var avgRating) 
                     ? avgRating.GetDouble() 
                     : null;
-                dto.RatingsCount = volumeInfo.TryGetProperty("ratingsCount", out var ratingsCount) 
+                dto.OySayisi = volumeInfo.TryGetProperty("ratingsCount", out var ratingsCount) 
                     ? ratingsCount.GetInt32() 
                     : null;
 

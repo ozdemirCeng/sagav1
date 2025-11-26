@@ -12,6 +12,7 @@ import HomePage from './pages/HomePage';
 import ExplorePage from './pages/ExplorePage';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
+import ResetPasswordPage from './pages/ResetPasswordPage';
 import ContentDetailPage from './pages/ContentDetailPage';
 import ProfilePage from './pages/ProfilePage';
 
@@ -37,6 +38,7 @@ function App() {
                             {/* Public Routes */}
                             <Route path="/giris" element={<LoginPage />} />
                             <Route path="/kayit" element={<RegisterPage />} />
+                            <Route path="/sifre-sifirla" element={<ResetPasswordPage />} />
 
                             {/* Protected Routes */}
                             <Route element={<AppLayout />}>

@@ -65,7 +65,7 @@ export const kullaniciService = {
 
   // Kullanıcı adına göre profil getir
   getProfileByUsername: async (kullaniciAdi: string): Promise<ProfilDto> => {
-    const response = await api.get(`/kullanici/${kullaniciAdi}`);
+    const response = await api.get(`/kullanici/username/${kullaniciAdi}`);
     return response.data;
   },
 
@@ -85,7 +85,7 @@ export const kullaniciService = {
   search: async (query: string, params?: {
     page?: number;
     limit?: number;
-  }): Promise<{ items: KullaniciListDto[]; toplam: number }> => {
+  }): Promise<KullaniciListDto[]> => {
     const response = await api.get('/kullanici/ara', {
       params: { q: query, ...params },
     });
@@ -94,7 +94,7 @@ export const kullaniciService = {
 
   // Kullanıcı istatistiklerini getir
   getStats: async (kullaniciId: string): Promise<KullaniciIstatistikDto> => {
-    const response = await api.get(`/kullanici/${kullaniciId}/istatistikler`);
+    const response = await api.get(`/kullanici/${kullaniciId}/istatistik`);
     return response.data;
   },
 
@@ -106,15 +106,15 @@ export const kullaniciService = {
 
   // Takibi bırak
   unfollow: async (kullaniciId: string): Promise<void> => {
-    await api.delete(`/kullanici/${kullaniciId}/takip`);
+    await api.post(`/kullanici/${kullaniciId}/takip`); // Toggle endpoint
   },
 
   // Takipçileri getir
   getFollowers: async (
     kullaniciId: string,
     params?: { page?: number; limit?: number }
-  ): Promise<{ items: KullaniciListDto[]; toplam: number }> => {
-    const response = await api.get(`/kullanici/${kullaniciId}/takipciler`, { params });
+  ): Promise<KullaniciListDto[]> => {
+    const response = await api.get(`/kullanici/${kullaniciId}/takip-edenler`, { params });
     return response.data;
   },
 
@@ -122,17 +122,8 @@ export const kullaniciService = {
   getFollowing: async (
     kullaniciId: string,
     params?: { page?: number; limit?: number }
-  ): Promise<{ items: KullaniciListDto[]; toplam: number }> => {
-    const response = await api.get(`/kullanici/${kullaniciId}/takip-edilenler`, { params });
-    return response.data;
-  },
-
-  // Popüler kullanıcılar
-  getPopular: async (params?: {
-    page?: number;
-    limit?: number;
-  }): Promise<{ items: KullaniciListDto[]; toplam: number }> => {
-    const response = await api.get('/kullanici/populer', { params });
+  ): Promise<KullaniciListDto[]> => {
+    const response = await api.get(`/kullanici/${kullaniciId}/takip-ettikleri`, { params });
     return response.data;
   },
 };
