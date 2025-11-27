@@ -44,10 +44,36 @@ namespace Saga.Server.Controllers
                 _context.Yorumlar.Add(yorum);
                 await _context.SaveChangesAsync();
 
-                    // Aktivite kaydı artık PostgreSQL trigger'ı ile otomatik oluşturuluyor (veritabaniyapisi -> aktivite_ekle_yorum)
-                    // Bu yüzden burada manuel Aktivite eklemiyoruz ki çift kayıt oluşmasın.
+                // Aktivite kaydı artık PostgreSQL trigger'ı ile otomatik oluşturuluyor (veritabaniyapisi -> aktivite_ekle_yorum)
+                // Bu yüzden burada manuel Aktivite eklemiyoruz ki çift kayıt oluşmasın.
 
                 var kullanici = await _context.Kullanicilar.FindAsync(kullaniciId);
+
+                // Yanıt ise üst yorum sahibine bildirim gönder
+                if (dto.UstYorumId.HasValue)
+                {
+                    var ustYorum = await _context.Yorumlar
+                        .Include(y => y.Kullanici)
+                        .FirstOrDefaultAsync(y => y.Id == dto.UstYorumId);
+                    
+                    if (ustYorum != null && ustYorum.KullaniciId != kullaniciId)
+                    {
+                        var bildirim = new Bildirim
+                        {
+                            AliciId = ustYorum.KullaniciId,
+                            GonderenId = kullaniciId,
+                            Tip = "yorum_yanit",
+                            Baslik = "Yorumunuza Yanıt",
+                            Mesaj = $"{kullanici?.KullaniciAdi ?? "Birisi"} yorumunuza yanıt verdi",
+                            IcerikId = dto.IcerikId,
+                            YorumId = yorum.Id,
+                            LinkUrl = $"/icerik/{dto.IcerikId}",
+                            OlusturulmaZamani = DateTime.UtcNow
+                        };
+                        _context.Bildirimler.Add(bildirim);
+                        await _context.SaveChangesAsync();
+                    }
+                }
 
                 var response = new YorumResponseDto
                 {
@@ -288,6 +314,7 @@ namespace Saga.Server.Controllers
 
                 var yorum = await _context.Yorumlar
                     .Include(y => y.Begenenler)
+                    .Include(y => y.Kullanici)
                     .FirstOrDefaultAsync(y => y.Id == id && !y.Silindi);
 
                 if (yorum == null)
@@ -315,6 +342,26 @@ namespace Saga.Server.Controllers
                         OlusturulmaZamani = DateTime.UtcNow
                     };
                     _context.YorumBegenileri.Add(begeni);
+                    
+                    // Bildirim oluştur (kendi yorumunu beğendiyse hariç)
+                    if (yorum.KullaniciId != kullaniciId)
+                    {
+                        var begenen = await _context.Kullanicilar.FindAsync(kullaniciId);
+                        var bildirim = new Bildirim
+                        {
+                            AliciId = yorum.KullaniciId,
+                            GonderenId = kullaniciId,
+                            Tip = "yorum_begeni",
+                            Baslik = "Yorumunuz Beğenildi",
+                            Mesaj = $"{begenen?.KullaniciAdi ?? "Birisi"} yorumunuzu beğendi",
+                            IcerikId = yorum.IcerikId,
+                            YorumId = yorum.Id,
+                            LinkUrl = $"/icerik/{yorum.IcerikId}",
+                            OlusturulmaZamani = DateTime.UtcNow
+                        };
+                        _context.Bildirimler.Add(bildirim);
+                    }
+                    
                     await _context.SaveChangesAsync();
                     return Ok(new { message = "Yorum beğenildi", begendi = true, begeniSayisi = yorum.Begenenler.Count + 1 });
                 }

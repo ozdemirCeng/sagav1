@@ -92,9 +92,14 @@ namespace Saga.Server.Controllers
                     return NotFound(new { message = "Kullanıcı bulunamadı." });
                 }
 
-                kullanici.GoruntulemeAdi = dto.GoruntulemeAdi;
-                kullanici.Biyografi = dto.Biyografi;
-                kullanici.AvatarUrl = dto.AvatarUrl;
+                // Sadece gönderilen değerleri güncelle, boş string'leri yoksay
+                if (!string.IsNullOrWhiteSpace(dto.GoruntulemeAdi))
+                    kullanici.GoruntulemeAdi = dto.GoruntulemeAdi;
+                if (!string.IsNullOrWhiteSpace(dto.Biyografi))
+                    kullanici.Biyografi = dto.Biyografi;
+                if (!string.IsNullOrWhiteSpace(dto.AvatarUrl))
+                    kullanici.AvatarUrl = dto.AvatarUrl;
+                    
                 kullanici.GuncellemeZamani = DateTime.UtcNow;
 
                 await _context.SaveChangesAsync();
@@ -441,6 +446,295 @@ namespace Saga.Server.Controllers
 
             _context.Aktiviteler.Add(aktivite);
             await _context.SaveChangesAsync();
+        }
+
+        // DELETE: api/kullanici/hesap
+        // Kullanıcı hesabını kalıcı olarak siler
+        [HttpDelete("hesap")]
+        [Authorize]
+        public async Task<IActionResult> DeleteAccount()
+        {
+            try
+            {
+                var kullaniciId = GetCurrentUserId();
+                
+                var kullanici = await _context.Kullanicilar
+                    .FirstOrDefaultAsync(k => k.Id == kullaniciId);
+
+                if (kullanici == null)
+                {
+                    return NotFound(new { message = "Kullanıcı bulunamadı." });
+                }
+
+                // Soft delete - sadece silindi olarak işaretle
+                // İlişkili tüm veriler de soft delete yapılacak
+                kullanici.Silindi = true;
+                kullanici.GuncellemeZamani = DateTime.UtcNow;
+                kullanici.Aktif = false;
+
+                // İlişkili verileri de soft delete yap
+                await _context.Aktiviteler
+                    .Where(a => a.KullaniciId == kullaniciId)
+                    .ExecuteUpdateAsync(a => a.SetProperty(x => x.Silindi, true));
+
+                await _context.Yorumlar
+                    .Where(y => y.KullaniciId == kullaniciId)
+                    .ExecuteUpdateAsync(y => y.SetProperty(x => x.Silindi, true));
+
+                await _context.Puanlamalar
+                    .Where(p => p.KullaniciId == kullaniciId)
+                    .ExecuteUpdateAsync(p => p.SetProperty(x => x.Silindi, true));
+
+                await _context.Listeler
+                    .Where(l => l.KullaniciId == kullaniciId)
+                    .ExecuteUpdateAsync(l => l.SetProperty(x => x.Silindi, true));
+
+                await _context.KutuphaneDurumlari
+                    .Where(k => k.KullaniciId == kullaniciId)
+                    .ExecuteUpdateAsync(k => k.SetProperty(x => x.Silindi, true));
+
+                // Takipleri sil (hard delete)
+                await _context.Takipler
+                    .Where(t => t.TakipEdenId == kullaniciId || t.TakipEdilenId == kullaniciId)
+                    .ExecuteDeleteAsync();
+
+                await _context.SaveChangesAsync();
+
+                _logger.LogInformation("Kullanıcı hesabı silindi: {KullaniciId}", kullaniciId);
+
+                return Ok(new { message = "Hesabınız başarıyla silindi." });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Hesap silinirken hata: {KullaniciId}", GetCurrentUserId());
+                return StatusCode(500, new { message = "Hesap silinirken bir hata oluştu." });
+            }
+        }
+
+        // GET: api/kullanici/onerilen
+        // Akıllı Öneri Sistemi: Benzer içerik türleriyle ilgilenen kullanıcıları öner
+        // Algoritma: Kullanıcının kütüphanesindeki içerik türlerini (film/kitap) analiz et
+        // ve aynı türlerle ilgilenen, henüz takip etmediği kullanıcıları öner
+        [HttpGet("onerilen")]
+        public async Task<ActionResult<List<OnerilenKullaniciDto>>> GetOnerilenKullanicilar([FromQuery] int limit = 5)
+        {
+            try
+            {
+                var currentUserId = GetCurrentUserIdOrNull();
+
+                // Takip edilen kullanıcı ID'leri (giriş yapmışsa)
+                var takipEdilenIds = currentUserId.HasValue
+                    ? await _context.Takipler
+                        .Where(t => t.TakipEdenId == currentUserId.Value)
+                        .Select(t => t.TakipEdilenId)
+                        .ToListAsync()
+                    : new List<Guid>();
+
+                // Eğer kullanıcı giriş yapmışsa, akıllı öneri yap
+                if (currentUserId.HasValue)
+                {
+                    // Kullanıcının kütüphanesindeki içerik ID'lerini al
+                    var kullaniciKutuphaneIcerikleri = await _context.KutuphaneDurumlari
+                        .Where(k => k.KullaniciId == currentUserId.Value && !k.Silindi)
+                        .Select(k => k.IcerikId)
+                        .ToListAsync();
+
+                    // Kullanıcının ilgilendiği içerik türlerini bul (film mi kitap mı)
+                    var kullaniciIcerikTurleri = await _context.KutuphaneDurumlari
+                        .Include(k => k.Icerik)
+                        .Where(k => k.KullaniciId == currentUserId.Value && !k.Silindi)
+                        .Select(k => k.Icerik.Tur)
+                        .Distinct()
+                        .ToListAsync();
+
+                    // Kullanıcının puanladığı içeriklerin ID'leri
+                    var puanladigiIcerikler = await _context.Puanlamalar
+                        .Where(p => p.KullaniciId == currentUserId.Value && !p.Silindi)
+                        .Select(p => p.IcerikId)
+                        .ToListAsync();
+
+                    // Benzer içeriklerle ilgilenen kullanıcıları bul
+                    var ortakIcerikKullanicilari = await _context.KutuphaneDurumlari
+                        .Where(k => !k.Silindi &&
+                                    k.KullaniciId != currentUserId.Value &&
+                                    !takipEdilenIds.Contains(k.KullaniciId) &&
+                                    (kullaniciKutuphaneIcerikleri.Contains(k.IcerikId) ||
+                                     puanladigiIcerikler.Contains(k.IcerikId)))
+                        .GroupBy(k => k.KullaniciId)
+                        .Select(g => new
+                        {
+                            KullaniciId = g.Key,
+                            OrtakIcerikSayisi = g.Count()
+                        })
+                        .OrderByDescending(x => x.OrtakIcerikSayisi)
+                        .Take(limit * 2) // Daha fazla aday al
+                        .ToListAsync();
+
+                    // Aynı içerik türleriyle ilgilenen kullanıcıları bul
+                    var benzerTurKullanicilari = await _context.KutuphaneDurumlari
+                        .Include(k => k.Icerik)
+                        .Where(k => !k.Silindi &&
+                                    k.KullaniciId != currentUserId.Value &&
+                                    !takipEdilenIds.Contains(k.KullaniciId) &&
+                                    kullaniciIcerikTurleri.Contains(k.Icerik.Tur))
+                        .GroupBy(k => k.KullaniciId)
+                        .Select(g => new
+                        {
+                            KullaniciId = g.Key,
+                            BenzerTurSayisi = g.Count()
+                        })
+                        .ToListAsync();
+
+                    // Skorları birleştir
+                    var tumAdaylar = ortakIcerikKullanicilari
+                        .Select(x => new
+                        {
+                            x.KullaniciId,
+                            Skor = x.OrtakIcerikSayisi * 3 // Ortak içerik 3x ağırlık
+                        })
+                        .Concat(benzerTurKullanicilari.Select(x => new
+                        {
+                            x.KullaniciId,
+                            Skor = x.BenzerTurSayisi // Benzer tür 1x ağırlık
+                        }))
+                        .GroupBy(x => x.KullaniciId)
+                        .Select(g => new
+                        {
+                            KullaniciId = g.Key,
+                            ToplamSkor = g.Sum(x => x.Skor)
+                        })
+                        .OrderByDescending(x => x.ToplamSkor)
+                        .Take(limit)
+                        .Select(x => x.KullaniciId)
+                        .ToList();
+
+                    if (tumAdaylar.Any())
+                    {
+                        var onerilenler = await _context.Kullanicilar
+                            .Where(k => tumAdaylar.Contains(k.Id) && !k.Silindi && k.Aktif)
+                            .Select(k => new
+                            {
+                                Kullanici = k,
+                                TakipciSayisi = _context.Takipler.Count(t => t.TakipEdilenId == k.Id),
+                                PuanlamaSayisi = _context.Puanlamalar.Count(p => p.KullaniciId == k.Id && !p.Silindi),
+                                OrtakIcerik = _context.KutuphaneDurumlari.Count(kd =>
+                                    kd.KullaniciId == k.Id && !kd.Silindi &&
+                                    (kullaniciKutuphaneIcerikleri.Contains(kd.IcerikId) ||
+                                     puanladigiIcerikler.Contains(kd.IcerikId))),
+                                // Ortak içerik türlerini bul
+                                FilmIlgisi = _context.KutuphaneDurumlari.Any(kd =>
+                                    kd.KullaniciId == k.Id && !kd.Silindi && kd.Icerik.Tur == IcerikTuru.film),
+                                KitapIlgisi = _context.KutuphaneDurumlari.Any(kd =>
+                                    kd.KullaniciId == k.Id && !kd.Silindi && kd.Icerik.Tur == IcerikTuru.kitap)
+                            })
+                            .ToListAsync();
+
+                        // Skorlara göre sırala
+                        var result = onerilenler
+                            .Select(x => new OnerilenKullaniciDto
+                            {
+                                Id = x.Kullanici.Id,
+                                KullaniciAdi = x.Kullanici.KullaniciAdi,
+                                GoruntulemeAdi = x.Kullanici.GoruntulemeAdi,
+                                AvatarUrl = x.Kullanici.AvatarUrl,
+                                TakipEdenSayisi = x.TakipciSayisi,
+                                ToplamPuanlama = x.PuanlamaSayisi,
+                                OrtakIcerikSayisi = x.OrtakIcerik,
+                                OneriNedeni = x.OrtakIcerik > 0
+                                    ? $"{x.OrtakIcerik} ortak içerik"
+                                    : (x.FilmIlgisi && x.KitapIlgisi ? "Film ve kitap ilgisi"
+                                        : x.FilmIlgisi ? "Film ilgisi"
+                                        : x.KitapIlgisi ? "Kitap ilgisi"
+                                        : "Aktif kullanıcı")
+                            })
+                            .OrderByDescending(x => x.OrtakIcerikSayisi)
+                            .ThenByDescending(x => x.TakipEdenSayisi)
+                            .Take(limit)
+                            .ToList();
+
+                        return Ok(result);
+                    }
+                }
+
+                // Fallback: Giriş yapmamış veya yeterli veri yoksa, en aktif kullanıcıları göster
+                var query = _context.Kullanicilar
+                    .Where(k => !k.Silindi && k.Aktif);
+
+                if (currentUserId.HasValue)
+                {
+                    query = query.Where(k => k.Id != currentUserId.Value && !takipEdilenIds.Contains(k.Id));
+                }
+
+                var kullanicilar = await query
+                    .Select(k => new
+                    {
+                        Kullanici = k,
+                        PuanlamaSayisi = _context.Puanlamalar.Count(p => p.KullaniciId == k.Id && !p.Silindi),
+                        TakipciSayisi = _context.Takipler.Count(t => t.TakipEdilenId == k.Id)
+                    })
+                    .OrderByDescending(x => x.TakipciSayisi)
+                    .ThenByDescending(x => x.PuanlamaSayisi)
+                    .Take(limit)
+                    .ToListAsync();
+
+                var fallbackResult = kullanicilar.Select(x => new OnerilenKullaniciDto
+                {
+                    Id = x.Kullanici.Id,
+                    KullaniciAdi = x.Kullanici.KullaniciAdi,
+                    GoruntulemeAdi = x.Kullanici.GoruntulemeAdi,
+                    AvatarUrl = x.Kullanici.AvatarUrl,
+                    TakipEdenSayisi = x.TakipciSayisi,
+                    ToplamPuanlama = x.PuanlamaSayisi,
+                    OrtakIcerikSayisi = 0,
+                    OneriNedeni = "Popüler kullanıcı"
+                }).ToList();
+
+                return Ok(fallbackResult);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Önerilen kullanıcılar alınırken hata");
+                return StatusCode(500, new { message = "Önerilen kullanıcılar yüklenirken bir hata oluştu." });
+            }
+        }
+
+        // GET: api/kullanici/populer
+        // En popüler kullanıcıları getir (en çok takipçili)
+        [HttpGet("populer")]
+        public async Task<ActionResult<List<KullaniciListDto>>> GetPopulerKullanicilar([FromQuery] int limit = 10)
+        {
+            try
+            {
+                var kullanicilar = await _context.Kullanicilar
+                    .Where(k => !k.Silindi && k.Aktif)
+                    .Select(k => new
+                    {
+                        Kullanici = k,
+                        TakipciSayisi = _context.Takipler.Count(t => t.TakipEdilenId == k.Id),
+                        PuanlamaSayisi = _context.Puanlamalar.Count(p => p.KullaniciId == k.Id && !p.Silindi)
+                    })
+                    .OrderByDescending(x => x.TakipciSayisi)
+                    .ThenByDescending(x => x.PuanlamaSayisi)
+                    .Take(limit)
+                    .ToListAsync();
+
+                var result = kullanicilar.Select(x => new KullaniciListDto
+                {
+                    Id = x.Kullanici.Id,
+                    KullaniciAdi = x.Kullanici.KullaniciAdi,
+                    GoruntulemeAdi = x.Kullanici.GoruntulemeAdi,
+                    AvatarUrl = x.Kullanici.AvatarUrl,
+                    TakipEdenSayisi = x.TakipciSayisi,
+                    ToplamPuanlama = x.PuanlamaSayisi
+                }).ToList();
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Popüler kullanıcılar alınırken hata");
+                return StatusCode(500, new { message = "Popüler kullanıcılar yüklenirken bir hata oluştu." });
+            }
         }
     }
 }

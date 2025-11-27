@@ -34,7 +34,8 @@ namespace Saga.Server.DTOs
         [MaxLength(500)]
         public string? Biyografi { get; set; }
 
-        [Url]
+        [Url(ErrorMessage = "Geçerli bir URL giriniz.")]
+        [MaxLength(500)]
         public string? AvatarUrl { get; set; }
     }
 
@@ -73,5 +74,19 @@ namespace Saga.Server.DTOs
         public int TakipEdenSayisi { get; set; }
         public int TakipEdilenSayisi { get; set; }
         public decimal OrtalamaPuan { get; set; }
+    }
+
+    // Akıllı Öneri Sistemi için DTO
+    // Benzer içerik türleriyle ilgilenen kullanıcı önerileri
+    public class OnerilenKullaniciDto
+    {
+        public Guid Id { get; set; }
+        public string KullaniciAdi { get; set; } = null!;
+        public string? GoruntulemeAdi { get; set; }
+        public string? AvatarUrl { get; set; }
+        public int TakipEdenSayisi { get; set; }
+        public int ToplamPuanlama { get; set; }
+        public int OrtakIcerikSayisi { get; set; }
+        public string OneriNedeni { get; set; } = null!; // "5 ortak içerik", "Film ilgisi", "Kitap ilgisi" vb.
     }
 }

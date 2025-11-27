@@ -30,6 +30,21 @@ namespace Saga.Server.Models
         [Column("link_url")]
         public string? LinkUrl { get; set; }
 
+        [Column("icerik_id")]
+        public long? IcerikId { get; set; }
+        public Icerik? Icerik { get; set; }
+
+        [Column("aktivite_id")]
+        public long? AktiviteId { get; set; }
+        public Aktivite? Aktivite { get; set; }
+
+        [Column("yorum_id")]
+        public long? YorumId { get; set; }
+        public Yorum? BildirimYorum { get; set; }
+
+        [Column("meta_veri", TypeName = "jsonb")]
+        public string MetaVeri { get; set; } = "{}";
+
         [Column("okundu")]
         public bool Okundu { get; set; } = false;
 

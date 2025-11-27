@@ -326,7 +326,7 @@ export default function HomePage() {
     <Container size="xl" py="xl">
       <Stack gap="xl">
         <Title order={1}>
-          {user ? `Hoş Geldin, ${user.user_metadata?.kullanici_adi || 'Kullanıcı'}!` : 'Saga\'ya Hoş Geldiniz'}
+          {user ? `Hoş Geldin, ${user.goruntulemeAdi || user.kullaniciAdi || 'Kullanıcı'}!` : 'Saga\'ya Hoş Geldiniz'}
         </Title>
 
         {user ? (

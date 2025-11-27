@@ -23,6 +23,9 @@ import {
   Menu,
   ActionIcon,
   Tooltip,
+  Spoiler,
+  SimpleGrid,
+  Box,
 } from '@mantine/core';
 import { useState } from 'react';
 import { 
@@ -34,7 +37,7 @@ import {
   IconHeart,
   IconHeartFilled,
   IconMessageCircle,
-    IconSearch,
+  IconSearch,
 } from '@tabler/icons-react';
 import { useContentDetail, useContentComments } from '../hooks/useIcerikler';
 import { useInteractions } from '../hooks/useInteractions';
@@ -45,6 +48,43 @@ import { listeService, type ListeListDto } from '../services/listeService';
 import { notifications } from '@mantine/notifications';
 import { LoadingOverlay } from '../components/LoadingOverlay';
 import { EmptyState } from '../components/EmptyState';
+
+// Genişletilebilir metin komponenti
+function ExpandableText({ text, maxLength = 300 }: { text: string; maxLength?: number }) {
+    if (!text || text.length <= maxLength) {
+        return <Text size="lg">{text}</Text>;
+    }
+    
+    return (
+        <Spoiler maxHeight={120} showLabel="Devamını Oku" hideLabel="Daha Az Göster">
+            <Text size="lg">{text}</Text>
+        </Spoiler>
+    );
+}
+
+// Genişletilebilir yorum komponenti
+function ExpandableComment({ text, maxLength = 200, spoiler = false }: { text: string; maxLength?: number; spoiler?: boolean }) {
+    const [spoilerRevealed, setSpoilerRevealed] = useState(false);
+    
+    // Spoiler içeriyorsa ve henüz açılmadıysa
+    if (spoiler && !spoilerRevealed) {
+        return (
+            <Box mt="sm" p="sm" style={{ backgroundColor: 'rgba(0, 0, 0, 0.1)', borderRadius: '4px', cursor: 'pointer' }} onClick={() => setSpoilerRevealed(true)}>
+                <Text c="dimmed" size="sm" ta="center">🚨 Spoiler içerik - görmek için tıklayın</Text>
+            </Box>
+        );
+    }
+    
+    if (!text || text.length <= maxLength) {
+        return <Text mt="sm">{text}</Text>;
+    }
+    
+    return (
+        <Spoiler maxHeight={80} showLabel="Devamını Oku" hideLabel="Daha Az Göster">
+            <Text mt="sm">{text}</Text>
+        </Spoiler>
+    );
+}
 
 export default function ContentDetailPage() {
     const { id } = useParams();
@@ -67,6 +107,13 @@ export default function ContentDetailPage() {
 
     const { data: icerik, isLoading: loadingIcerik } = useContentDetail(contentId);
     const { data: yorumlar, isLoading: loadingYorumlar } = useContentComments(contentId);
+
+    // Debug: Meta verileri konsola yazdır
+    console.log('İçerik Data:', icerik);
+    console.log('Yazarlar:', icerik?.yazarlar);
+    console.log('Sayfa Sayısı:', icerik?.sayfaSayisi);
+    console.log('Oyuncular:', icerik?.oyuncular);
+    console.log('Yönetmen:', icerik?.yonetmen);
 
     // Kütüphane durumu
     const { data: kutuphaneDurum } = useQuery({
@@ -229,19 +276,129 @@ export default function ContentDetailPage() {
                     <Badge size="lg" color={icerik.tur === 'film' ? 'blue' : 'green'}>{icerik.tur.toUpperCase()}</Badge>
                     <Title mt="xs" mb="md">{icerik.baslik}</Title>
 
-                    <Group mb="lg">
-                        <Tooltip label="Platform kullanıcılarının ortalama puanı">
-                            <Group gap={4}>
-                                <Text size="xl" fw={700} c="yellow">⭐ {icerik.ortalamaPuan.toFixed(1)}</Text>
-                                {icerik.puanlamaSayisi > 0 && (
-                                    <Text size="sm" c="dimmed">({icerik.puanlamaSayisi} oy)</Text>
-                                )}
-                            </Group>
-                        </Tooltip>
-                        <Text c="dimmed">({icerik.yayinTarihi})</Text>
-                    </Group>
+                    {/* İkili Puan Gösterimi - Her zaman ikisi de gösterilir */}
+                    <Stack gap="xs" mb="lg">
+                        <Group>
+                            {/* Harici Puan (TMDB/Google) */}
+                            <Tooltip label={icerik.tur === 'kitap' ? 'Google Books Puanı' : 'TMDB Puanı'}>
+                                <Badge size="xl" color="orange" variant="filled" style={{ padding: '12px 16px' }}>
+                                    ⭐ {(icerik.hariciPuan ?? 0) > 0 ? icerik.hariciPuan.toFixed(1) : '-'} {icerik.tur === 'kitap' ? 'Google' : 'TMDB'}
+                                </Badge>
+                            </Tooltip>
+                            {/* Platform Puanı (SAGA) */}
+                            <Tooltip label="SAGA kullanıcılarının ortalama puanı">
+                                <Badge size="xl" color="blue" variant="filled" style={{ padding: '12px 16px' }}>
+                                    ⭐ {(icerik.ortalamaPuan ?? 0) > 0 ? icerik.ortalamaPuan.toFixed(1) : '-'} SAGA
+                                    {icerik.puanlamaSayisi > 0 && (
+                                        <Text span size="xs" ml={4}>({icerik.puanlamaSayisi})</Text>
+                                    )}
+                                </Badge>
+                            </Tooltip>
+                        </Group>
+                        
+                        {/* Meta Bilgiler */}
+                        <Group gap="xs" mt="xs">
+                            <Text c="dimmed" size="sm">📅 {icerik.yayinTarihi || 'Tarih bilinmiyor'}</Text>
+                            
+                            {/* Film/Dizi için süre veya sezon bilgisi */}
+                            {icerik.tur === 'film' && icerik.sure && (
+                                <Text c="dimmed" size="sm">⏱️ {icerik.sure} dk</Text>
+                            )}
+                            {icerik.sezonSayisi && (
+                                <Text c="dimmed" size="sm">📺 {icerik.sezonSayisi} Sezon {icerik.bolumSayisi && `/ ${icerik.bolumSayisi} Bölüm`}</Text>
+                            )}
+                            
+                            {/* Kitap için sayfa sayısı */}
+                            {icerik.tur === 'kitap' && icerik.sayfaSayisi && (
+                                <Text c="dimmed" size="sm">📖 {icerik.sayfaSayisi} sayfa</Text>
+                            )}
+                        </Group>
 
-                    <Text size="lg" mb="xl">{icerik.aciklama}</Text>
+                        {/* Türler */}
+                        {icerik.turler && icerik.turler.length > 0 && (
+                            <Group gap="xs" mt="xs">
+                                {icerik.turler.map((tur, index) => (
+                                    <Badge key={index} variant="light" color="gray" size="sm">{tur}</Badge>
+                                ))}
+                            </Group>
+                        )}
+                        
+                        {/* Kategoriler (Kitap) */}
+                        {icerik.kategoriler && icerik.kategoriler.length > 0 && (
+                            <Group gap="xs" mt="xs">
+                                {icerik.kategoriler.map((kategori, index) => (
+                                    <Badge key={index} variant="light" color="teal" size="sm">{kategori}</Badge>
+                                ))}
+                            </Group>
+                        )}
+
+                        {/* Yönetmen (Film/Dizi) */}
+                        {icerik.yonetmen && (
+                            <Text size="sm" mt="xs">
+                                <Text span fw={500}>🎬 Yönetmen: </Text>
+                                {icerik.yonetmen}
+                            </Text>
+                        )}
+                        
+                        {/* Yazarlar (Kitap) */}
+                        {icerik.yazarlar && icerik.yazarlar.length > 0 && (
+                            <Text size="sm" mt="xs">
+                                <Text span fw={500}>✍️ Yazar: </Text>
+                                {icerik.yazarlar.join(', ')}
+                            </Text>
+                        )}
+                        
+                        {/* Yayınevi (Kitap) */}
+                        {icerik.yayinevi && (
+                            <Text size="sm">
+                                <Text span fw={500}>🏢 Yayınevi: </Text>
+                                {icerik.yayinevi}
+                            </Text>
+                        )}
+                        
+                        {/* ISBN (Kitap) */}
+                        {icerik.isbn && (
+                            <Text size="sm" c="dimmed">
+                                <Text span fw={500}>ISBN: </Text>
+                                {icerik.isbn}
+                            </Text>
+                        )}
+                    </Stack>
+
+                    {/* Açıklama - Genişletilebilir */}
+                    {icerik.aciklama && (
+                        <Box mb="xl">
+                            <Text fw={500} mb="xs">Açıklama</Text>
+                            <ExpandableText text={icerik.aciklama} maxLength={400} />
+                        </Box>
+                    )}
+
+                    {/* Oyuncular (Film/Dizi) */}
+                    {icerik.oyuncular && icerik.oyuncular.length > 0 && (
+                        <Box mb="xl">
+                            <Text fw={500} mb="sm">🎭 Oyuncular</Text>
+                            <SimpleGrid cols={{ base: 2, sm: 3, md: 5 }} spacing="sm">
+                                {icerik.oyuncular.slice(0, 10).map((oyuncu, index) => (
+                                    <Paper key={index} p="xs" radius="md" withBorder>
+                                        <Group gap="xs" wrap="nowrap">
+                                            <Avatar 
+                                                src={oyuncu.profilUrl} 
+                                                alt={oyuncu.ad} 
+                                                size="md" 
+                                                radius="xl"
+                                            />
+                                            <div style={{ overflow: 'hidden' }}>
+                                                <Text size="sm" fw={500} truncate>{oyuncu.ad}</Text>
+                                                {oyuncu.karakter && (
+                                                    <Text size="xs" c="dimmed" truncate>{oyuncu.karakter}</Text>
+                                                )}
+                                            </div>
+                                        </Group>
+                                    </Paper>
+                                ))}
+                            </SimpleGrid>
+                        </Box>
+                    )}
 
                     {/* Kütüphane ve Liste Butonları */}
                     {user && (
@@ -377,7 +534,7 @@ export default function ContentDetailPage() {
                             {yorum.baslik && (
                                 <Text fw={600} mb="xs">{yorum.baslik}</Text>
                             )}
-                            <Text mt="sm">{yorum.icerikOzet || yorum.icerik}</Text>
+                            <ExpandableComment text={yorum.icerikOzet || yorum.icerik} spoiler={yorum.spoilerIceriyor} />
 
                             <Group mt="md" gap="xs">
                                 <Button 

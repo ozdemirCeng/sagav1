@@ -37,6 +37,12 @@ namespace Saga.Server.Models
         [Column("puanlama_sayisi")]
         public int PuanlamaSayisi { get; set; }
 
+        [Column("harici_puan")]
+        public decimal HariciPuan { get; set; }
+
+        [Column("harici_oy_sayisi")]
+        public int HariciOySayisi { get; set; }
+
         [Column("yorum_sayisi")]
         public int YorumSayisi { get; set; }
 

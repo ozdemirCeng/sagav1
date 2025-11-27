@@ -17,6 +17,10 @@ import {
   Modal,
   TextInput,
   Textarea,
+  ScrollArea,
+  ActionIcon,
+  Loader,
+  Center,
 } from '@mantine/core';
 import {
   IconUserCircle,
@@ -25,12 +29,17 @@ import {
   IconActivity,
   IconEdit,
   IconCheck,
+  IconUsers,
+  IconUserMinus,
+  IconUserPlus,
+  IconLoader,
 } from '@tabler/icons-react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import { kullaniciService } from '../services/kullaniciService';
 import { kutuphaneService } from '../services/kutuphaneService';
 import { listeService, type ListeListDto } from '../services/listeService';
-import { aktiviteService, type AktiviteDto } from '../services/aktiviteService';
+import { aktiviteService } from '../services/aktiviteService';
+import { kullaniciApi, type Kullanici } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { notifications } from '@mantine/notifications';
@@ -49,9 +58,17 @@ export default function ProfilePage() {
     biyografi: '',
     avatarUrl: '',
   });
+  
+  // Takipçi/Takip Edilen modalları
+  const [followersModalOpen, setFollowersModalOpen] = useState(false);
+  const [followingModalOpen, setFollowingModalOpen] = useState(false);
+  const [followers, setFollowers] = useState<Kullanici[]>([]);
+  const [following, setFollowing] = useState<Kullanici[]>([]);
+  const [followersLoading, setFollowersLoading] = useState(false);
+  const [followingLoading, setFollowingLoading] = useState(false);
 
   // Kendi profilim mi?
-  const isOwnProfile = !username || username === user?.user_metadata?.kullanici_adi;
+  const isOwnProfile = !username || username === user?.kullaniciAdi;
 
   // Profil verisini getir
   const { data: profil, isLoading: profilLoading } = useQuery({
@@ -83,15 +100,36 @@ export default function ProfilePage() {
     enabled: !!profil?.id,
   });
 
-  // Aktiviteler
-  const { data: aktiviteler = [] } = useQuery<AktiviteDto[]>({
-    queryKey: ['aktiviteler', profil?.id],
-    queryFn: () =>
-      isOwnProfile
-        ? aktiviteService.getMyActivities()
-        : aktiviteService.getUserActivities(profil!.id),
+  // Aktiviteler - Infinite Query ile sayfalama
+  const AKTIVITE_LIMIT = 10;
+  const {
+    data: aktiviteData,
+    fetchNextPage: fetchNextAktivite,
+    hasNextPage: hasNextAktivite,
+    isFetchingNextPage: isFetchingNextAktivite,
+    isLoading: aktiviteLoading,
+  } = useInfiniteQuery({
+    queryKey: ['aktiviteler-infinite', profil?.id],
+    queryFn: async ({ pageParam = 1 }) => {
+      if (isOwnProfile) {
+        return aktiviteService.getMyActivitiesPaginated({ page: pageParam, limit: AKTIVITE_LIMIT });
+      } else {
+        return aktiviteService.getUserActivitiesPaginated(profil!.id, { page: pageParam, limit: AKTIVITE_LIMIT });
+      }
+    },
+    getNextPageParam: (lastPage, pages) => {
+      if (pages.length < lastPage.toplamSayfa) {
+        return pages.length + 1;
+      }
+      return undefined;
+    },
+    initialPageParam: 1,
     enabled: !!profil?.id,
   });
+
+  // Flat aktivite listesi
+  const aktiviteler = aktiviteData?.pages.flatMap(page => page.data) ?? [];
+  const aktiviteToplam = aktiviteData?.pages[0]?.toplamKayit ?? 0;
 
   // Takip et/Bırak mutation
   const followMutation = useMutation({
@@ -134,6 +172,77 @@ export default function ProfilePage() {
         avatarUrl: profil.avatarUrl || '',
       });
       setEditModalOpen(true);
+    }
+  };
+
+  // Takipçileri yükle ve modalı aç
+  const handleOpenFollowers = async () => {
+    if (!profil) return;
+    setFollowersModalOpen(true);
+    setFollowersLoading(true);
+    try {
+      const data = await kullaniciApi.getTakipciler(profil.id);
+      setFollowers(data);
+    } catch (err) {
+      console.error('Takipçiler yüklenirken hata:', err);
+      notifications.show({
+        title: 'Hata',
+        message: 'Takipçiler yüklenirken bir hata oluştu',
+        color: 'red',
+      });
+    } finally {
+      setFollowersLoading(false);
+    }
+  };
+
+  // Takip edilenleri yükle ve modalı aç
+  const handleOpenFollowing = async () => {
+    if (!profil) return;
+    setFollowingModalOpen(true);
+    setFollowingLoading(true);
+    try {
+      const data = await kullaniciApi.getTakipEdilenler(profil.id);
+      setFollowing(data);
+    } catch (err) {
+      console.error('Takip edilenler yüklenirken hata:', err);
+      notifications.show({
+        title: 'Hata',
+        message: 'Takip edilenler yüklenirken bir hata oluştu',
+        color: 'red',
+      });
+    } finally {
+      setFollowingLoading(false);
+    }
+  };
+
+  // Takip et/bırak (liste içinden)
+  const handleToggleFollow = async (userId: string, isFollowing: boolean) => {
+    try {
+      await kullaniciApi.takipEt(userId);
+      
+      // Listeyi güncelle
+      if (isFollowing) {
+        // Takipten çıkıldı - listeden kaldır (eğer kendi profilimizin takip ettikleri listesindeyse)
+        if (isOwnProfile && followingModalOpen) {
+          setFollowing(prev => prev.filter(u => u.id !== userId));
+        }
+      }
+      
+      // Profil verilerini yenile
+      queryClient.invalidateQueries({ queryKey: ['profil'] });
+      
+      notifications.show({
+        title: 'Başarılı',
+        message: isFollowing ? 'Takipten çıkıldı' : 'Takip edildi',
+        color: 'green',
+      });
+    } catch (err) {
+      console.error('Takip işlemi hatası:', err);
+      notifications.show({
+        title: 'Hata',
+        message: 'İşlem sırasında bir hata oluştu',
+        color: 'red',
+      });
     }
   };
 
@@ -220,12 +329,26 @@ export default function ProfilePage() {
                   <Text fw={700} size="lg">{profil.toplamListe}</Text>
                   <Text size="sm" c="dimmed">Liste</Text>
                 </div>
-                <div>
-                  <Text fw={700} size="lg">{profil.takipEdenSayisi}</Text>
+                <div 
+                  onClick={handleOpenFollowers}
+                  style={{ cursor: 'pointer' }}
+                  className="hover:opacity-80 transition-opacity"
+                >
+                  <Group gap={4}>
+                    <Text fw={700} size="lg">{profil.takipEdenSayisi}</Text>
+                    <IconUsers size={14} style={{ opacity: 0.5 }} />
+                  </Group>
                   <Text size="sm" c="dimmed">Takipçi</Text>
                 </div>
-                <div>
-                  <Text fw={700} size="lg">{profil.takipEdilenSayisi}</Text>
+                <div 
+                  onClick={handleOpenFollowing}
+                  style={{ cursor: 'pointer' }}
+                  className="hover:opacity-80 transition-opacity"
+                >
+                  <Group gap={4}>
+                    <Text fw={700} size="lg">{profil.takipEdilenSayisi}</Text>
+                    <IconUsers size={14} style={{ opacity: 0.5 }} />
+                  </Group>
                   <Text size="sm" c="dimmed">Takip</Text>
                 </div>
               </Group>
@@ -273,7 +396,7 @@ export default function ProfilePage() {
               Listeler ({listeler.length})
             </Tabs.Tab>
             <Tabs.Tab value="aktiviteler" leftSection={<IconActivity size={16} />}>
-              Aktiviteler ({aktiviteler.length})
+              Aktiviteler ({aktiviteToplam})
             </Tabs.Tab>
           </Tabs.List>
 
@@ -314,7 +437,11 @@ export default function ProfilePage() {
           </Tabs.Panel>
 
           <Tabs.Panel value="aktiviteler" pt="lg">
-            {aktiviteler.length > 0 ? (
+            {aktiviteLoading ? (
+              <Center py="xl">
+                <Loader size="lg" />
+              </Center>
+            ) : aktiviteler.length > 0 ? (
               <Stack gap="md">
                 {aktiviteler.map((aktivite) => (
                   <Paper key={aktivite.id} withBorder p="md">
@@ -346,6 +473,20 @@ export default function ProfilePage() {
                     </Group>
                   </Paper>
                 ))}
+                
+                {/* Daha Fazla Yükle Butonu */}
+                {hasNextAktivite && (
+                  <Center py="md">
+                    <Button
+                      variant="light"
+                      onClick={() => fetchNextAktivite()}
+                      loading={isFetchingNextAktivite}
+                      leftSection={!isFetchingNextAktivite && <IconLoader size={16} />}
+                    >
+                      {isFetchingNextAktivite ? 'Yükleniyor...' : 'Daha Fazla Yükle'}
+                    </Button>
+                  </Center>
+                )}
               </Stack>
             ) : (
               <EmptyState
@@ -398,6 +539,153 @@ export default function ProfilePage() {
             </Button>
           </Group>
         </Stack>
+      </Modal>
+
+      {/* Takipçiler Modal */}
+      <Modal
+        opened={followersModalOpen}
+        onClose={() => setFollowersModalOpen(false)}
+        title={
+          <Group gap="xs">
+            <IconUsers size={20} />
+            <Text fw={600}>Takipçiler ({profil?.takipEdenSayisi || 0})</Text>
+          </Group>
+        }
+        size="md"
+      >
+        <ScrollArea h={400}>
+          {followersLoading ? (
+            <Group justify="center" py="xl">
+              <Loader size="md" />
+            </Group>
+          ) : followers.length === 0 ? (
+            <EmptyState
+              icon={<IconUsers size={48} stroke={1.5} color="gray" />}
+              title="Takipçi Yok"
+              description="Henüz takipçi bulunmuyor"
+            />
+          ) : (
+            <Stack gap="sm">
+              {followers.map((follower) => (
+                <Paper key={follower.id} withBorder p="sm">
+                  <Group justify="space-between">
+                    <Group
+                      gap="sm"
+                      style={{ cursor: 'pointer' }}
+                      onClick={() => {
+                        setFollowersModalOpen(false);
+                        navigate(`/profil/${follower.kullaniciAdi}`);
+                      }}
+                    >
+                      <Avatar src={follower.avatarUrl} size={40} radius="xl">
+                        <IconUserCircle size={24} />
+                      </Avatar>
+                      <div>
+                        <Text fw={500} size="sm">
+                          {follower.goruntulemeAdi || follower.kullaniciAdi}
+                        </Text>
+                        <Text size="xs" c="dimmed">
+                          @{follower.kullaniciAdi} · {follower.takipEdenSayisi} takipçi
+                        </Text>
+                      </div>
+                    </Group>
+                    {user && user.id !== follower.id && (
+                      <ActionIcon
+                        variant="light"
+                        color="blue"
+                        size="lg"
+                        onClick={() => handleToggleFollow(follower.id, false)}
+                        title="Takip Et"
+                      >
+                        <IconUserPlus size={18} />
+                      </ActionIcon>
+                    )}
+                  </Group>
+                </Paper>
+              ))}
+            </Stack>
+          )}
+        </ScrollArea>
+      </Modal>
+
+      {/* Takip Edilenler Modal */}
+      <Modal
+        opened={followingModalOpen}
+        onClose={() => setFollowingModalOpen(false)}
+        title={
+          <Group gap="xs">
+            <IconUsers size={20} />
+            <Text fw={600}>Takip Edilenler ({profil?.takipEdilenSayisi || 0})</Text>
+          </Group>
+        }
+        size="md"
+      >
+        <ScrollArea h={400}>
+          {followingLoading ? (
+            <Group justify="center" py="xl">
+              <Loader size="md" />
+            </Group>
+          ) : following.length === 0 ? (
+            <EmptyState
+              icon={<IconUsers size={48} stroke={1.5} color="gray" />}
+              title="Takip Edilen Yok"
+              description="Henüz kimse takip edilmiyor"
+            />
+          ) : (
+            <Stack gap="sm">
+              {following.map((followedUser) => (
+                <Paper key={followedUser.id} withBorder p="sm">
+                  <Group justify="space-between">
+                    <Group
+                      gap="sm"
+                      style={{ cursor: 'pointer' }}
+                      onClick={() => {
+                        setFollowingModalOpen(false);
+                        navigate(`/profil/${followedUser.kullaniciAdi}`);
+                      }}
+                    >
+                      <Avatar src={followedUser.avatarUrl} size={40} radius="xl">
+                        <IconUserCircle size={24} />
+                      </Avatar>
+                      <div>
+                        <Text fw={500} size="sm">
+                          {followedUser.goruntulemeAdi || followedUser.kullaniciAdi}
+                        </Text>
+                        <Text size="xs" c="dimmed">
+                          @{followedUser.kullaniciAdi} · {followedUser.takipEdenSayisi} takipçi
+                        </Text>
+                      </div>
+                    </Group>
+                    {/* Kendi profilimizse takipten çıkma butonu göster */}
+                    {isOwnProfile && (
+                      <ActionIcon
+                        variant="light"
+                        color="red"
+                        size="lg"
+                        onClick={() => handleToggleFollow(followedUser.id, true)}
+                        title="Takipten Çık"
+                      >
+                        <IconUserMinus size={18} />
+                      </ActionIcon>
+                    )}
+                    {/* Başkasının profilindeyse takip et butonu göster */}
+                    {!isOwnProfile && user && user.id !== followedUser.id && (
+                      <ActionIcon
+                        variant="light"
+                        color="blue"
+                        size="lg"
+                        onClick={() => handleToggleFollow(followedUser.id, false)}
+                        title="Takip Et"
+                      >
+                        <IconUserPlus size={18} />
+                      </ActionIcon>
+                    )}
+                  </Group>
+                </Paper>
+              ))}
+            </Stack>
+          )}
+        </ScrollArea>
       </Modal>
     </Container>
   );

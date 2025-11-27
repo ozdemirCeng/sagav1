@@ -49,6 +49,14 @@ export interface FeedFilterDto {
   limit?: number;
 }
 
+// Sayfalama response tipi
+export interface PaginatedResponse<T> {
+  data: T[];
+  toplamSayfa: number;
+  toplamKayit: number;
+  mevcutSayfa?: number;
+}
+
 // API Functions
 export const aktiviteService = {
   // Ana feed (takip edilenler + kendi)
@@ -70,6 +78,28 @@ export const aktiviteService = {
     return response.data;
   },
 
+  // Belirli bir kullanıcının aktiviteleri - sayfalı
+  getUserActivitiesPaginated: async (
+    kullaniciId: string,
+    params?: {
+      aktiviteTuru?: string;
+      page?: number;
+      limit?: number;
+    }
+  ): Promise<PaginatedResponse<AktiviteDto>> => {
+    const sayfa = params?.page || 1;
+    const limit = params?.limit || 10;
+    const response = await api.get(`/aktivite/kullanici/${kullaniciId}`, { 
+      params: { sayfa, limit, aktiviteTuru: params?.aktiviteTuru } 
+    });
+    return {
+      data: response.data,
+      toplamSayfa: parseInt(response.headers['x-toplam-sayfa'] || '1'),
+      toplamKayit: parseInt(response.headers['x-toplam-kayit'] || '0'),
+      mevcutSayfa: sayfa,
+    };
+  },
+
   // Kendi aktivitelerim
   getMyActivities: async (params?: {
     aktiviteTuru?: string;
@@ -78,6 +108,25 @@ export const aktiviteService = {
   }): Promise<AktiviteDto[]> => {
     const response = await api.get('/aktivite', { params });
     return response.data;
+  },
+
+  // Kendi aktivitelerim - sayfalı
+  getMyActivitiesPaginated: async (params?: {
+    aktiviteTuru?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<PaginatedResponse<AktiviteDto>> => {
+    const sayfa = params?.page || 1;
+    const limit = params?.limit || 10;
+    const response = await api.get('/aktivite', { 
+      params: { sayfa, limit, aktiviteTuru: params?.aktiviteTuru } 
+    });
+    return {
+      data: response.data,
+      toplamSayfa: parseInt(response.headers['x-toplam-sayfa'] || '1'),
+      toplamKayit: parseInt(response.headers['x-toplam-kayit'] || '0'),
+      mevcutSayfa: sayfa,
+    };
   },
 
   // Belirli bir içeriğe ait aktiviteler

@@ -10,8 +10,10 @@ namespace Saga.Server.DTOs
         public string Tur { get; set; } = null!;
         public string? Aciklama { get; set; }
         public string? PosterUrl { get; set; }
-        public decimal OrtalamaPuan { get; set; }
+        public decimal OrtalamaPuan { get; set; } // Platform kullanıcı puanı
         public int PuanlamaSayisi { get; set; }
+        public decimal HariciPuan { get; set; } // TMDB/IMDB puanı
+        public int HariciOySayisi { get; set; }
         public decimal PopulerlikSkoru { get; set; }
         public DateOnly? YayinTarihi { get; set; }
     }
@@ -27,8 +29,10 @@ namespace Saga.Server.DTOs
         public string? Aciklama { get; set; }
         public string? PosterUrl { get; set; }
         public DateOnly? YayinTarihi { get; set; }
-        public decimal OrtalamaPuan { get; set; }
+        public decimal OrtalamaPuan { get; set; } // Platform kullanıcı puanı
         public int PuanlamaSayisi { get; set; }
+        public decimal HariciPuan { get; set; } // TMDB/IMDB puanı
+        public int HariciOySayisi { get; set; }
         public int YorumSayisi { get; set; }
         public int ListeyeEklenmeSayisi { get; set; }
         public int GoruntulemeSayisi { get; set; }
@@ -38,6 +42,29 @@ namespace Saga.Server.DTOs
         // Kullanıcının bu içerikle ilişkisi (varsa)
         public decimal? KullaniciPuani { get; set; }
         public string? KullanicininDurumu { get; set; } // izlendi, izlenecek vs.
+        
+        // Film/Dizi için meta veriler
+        public string? Yonetmen { get; set; }
+        public List<OyuncuInfoDto>? Oyuncular { get; set; }
+        public List<string>? Turler { get; set; }
+        public int? Sure { get; set; } // Dakika
+        public int? SezonSayisi { get; set; }
+        public int? BolumSayisi { get; set; }
+        
+        // Kitap için meta veriler
+        public List<string>? Yazarlar { get; set; }
+        public int? SayfaSayisi { get; set; }
+        public string? Yayinevi { get; set; }
+        public string? ISBN { get; set; }
+        public List<string>? Kategoriler { get; set; }
+    }
+    
+    // Oyuncu bilgisi DTO
+    public class OyuncuInfoDto
+    {
+        public string Ad { get; set; } = null!;
+        public string? Karakter { get; set; }
+        public string? ProfilUrl { get; set; }
     }
 
     // Arama sonuçları için
@@ -48,6 +75,7 @@ namespace Saga.Server.DTOs
         public string Tur { get; set; } = null!;
         public string? PosterUrl { get; set; }
         public decimal OrtalamaPuan { get; set; }
+        public decimal HariciPuan { get; set; }
         public DateOnly? YayinTarihi { get; set; }
         public string? Aciklama { get; set; }
     }

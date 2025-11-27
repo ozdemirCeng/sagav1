@@ -225,6 +225,38 @@ namespace Saga.Server.Controllers
             }
         }
 
+        // DELETE: api/kutuphane/icerik/{icerikId}
+        // Frontend için icerikId ile kütüphaneden kaldırma
+        [HttpDelete("icerik/{icerikId}")]
+        [Authorize]
+        public async Task<IActionResult> DeleteKutuphaneDurumByIcerikId(long icerikId)
+        {
+            try
+            {
+                var kullaniciId = GetCurrentUserId();
+
+                var kutuphaneDurum = await _context.KutuphaneDurumlari
+                    .FirstOrDefaultAsync(k => k.KullaniciId == kullaniciId && k.IcerikId == icerikId && !k.Silindi);
+
+                if (kutuphaneDurum == null)
+                {
+                    return NotFound(new { message = "Bu içerik için kütüphane durumu bulunamadı." });
+                }
+
+                // Soft delete
+                kutuphaneDurum.Silindi = true;
+                kutuphaneDurum.GuncellemeZamani = DateTime.UtcNow;
+                await _context.SaveChangesAsync();
+
+                return NoContent();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Kütüphane durumu silinirken hata (icerikId): {IcerikId}", icerikId);
+                return StatusCode(500, new { message = "Silme sırasında bir hata oluştu." });
+            }
+        }
+
         // GET: api/kutuphane/kullanici/{kullaniciId}
         [HttpGet("kullanici/{kullaniciId}")]
         public async Task<ActionResult<List<KutuphaneListDto>>> GetKullaniciKutuphanesi(

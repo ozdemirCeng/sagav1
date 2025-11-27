@@ -36,10 +36,24 @@ namespace Saga.Server.Models
         [Column("veri", TypeName = "jsonb")]
         public string Veri { get; set; } = "{}";
 
+        // İstatistik alanları
+        [Column("begeni_sayisi")]
+        public int BegeniSayisi { get; set; } = 0;
+
+        [Column("yorum_sayisi")]
+        public int YorumSayisi { get; set; } = 0;
+
+        [Column("paylasim_sayisi")]
+        public int PaylasimSayisi { get; set; } = 0;
+
         [Column("silindi")]
         public bool Silindi { get; set; } = false;
 
         [Column("olusturulma_zamani")]
         public DateTime OlusturulmaZamani { get; set; } = DateTime.UtcNow;
+
+        // Navigation properties
+        public ICollection<AktiviteBegeni> Begeniler { get; set; } = new List<AktiviteBegeni>();
+        public ICollection<AktiviteYorum> AktiviteYorumlari { get; set; } = new List<AktiviteYorum>();
     }
 }

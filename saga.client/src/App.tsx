@@ -1,20 +1,21 @@
 ﻿import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { MantineProvider } from '@mantine/core';
-import { Notifications } from '@mantine/notifications';
-import '@mantine/core/styles.css';
-import '@mantine/notifications/styles.css';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
-import { AuthProvider } from './context/AuthContext';
-import { ErrorBoundary } from './components/ErrorBoundary';
-import AppLayout from './layout/AppLayout';
-import HomePage from './pages/HomePage';
-import ExplorePage from './pages/ExplorePage';
-import LoginPage from './pages/LoginPage';
-import RegisterPage from './pages/RegisterPage';
-import ResetPasswordPage from './pages/ResetPasswordPage';
-import ContentDetailPage from './pages/ContentDetailPage';
-import ProfilePage from './pages/ProfilePage';
+import { AuthProvider, AuthModalProvider } from './context/AuthContext';
+import { GlassLayout } from './components/layout';
+import LoginPage from './pages/glass/LoginPage';
+import RegisterPage from './pages/glass/RegisterPage';
+import ForgotPasswordPage from './pages/glass/ForgotPasswordPage';
+import ResetPasswordPage from './pages/glass/ResetPasswordPage';
+import FeedPage from './pages/glass/FeedPage';
+import ExplorePage from './pages/glass/ExplorePage';
+import DetailPage from './pages/glass/DetailPage';
+import ProfilePage from './pages/glass/ProfilePage';
+import SettingsPage from './pages/glass/SettingsPage';
+import LibraryPage from './pages/glass/LibraryPage';
+import ListsPage from './pages/glass/ListsPage';
+import LikesPage from './pages/glass/LikesPage';
+import NotificationsPage from './pages/NotificationsPage';
 
 // Client örneğini oluştur (Cache ayarlarıyla)
 const queryClient = new QueryClient({
@@ -28,33 +29,38 @@ const queryClient = new QueryClient({
 
 function App() {
     return (
-        <MantineProvider>
-            <Notifications position="top-right" zIndex={1000} />
-            <QueryClientProvider client={queryClient}>
-                <AuthProvider>
-                    <ErrorBoundary>
-                        <BrowserRouter>
+        <QueryClientProvider client={queryClient}>
+            <AuthProvider>
+                <BrowserRouter>
+                    <AuthModalProvider>
                         <Routes>
-                            {/* Public Routes */}
+                            {/* Auth Routes - No Layout */}
                             <Route path="/giris" element={<LoginPage />} />
                             <Route path="/kayit" element={<RegisterPage />} />
-                            <Route path="/sifre-sifirla" element={<ResetPasswordPage />} />
+                            <Route path="/sifre-sifirla" element={<ForgotPasswordPage />} />
+                            <Route path="/sifre-yenile" element={<ResetPasswordPage />} />
 
-                            {/* Protected Routes */}
-                            <Route element={<AppLayout />}>
-                                <Route path="/" element={<HomePage />} />
+                            {/* Main App Routes with Glass Layout */}
+                            <Route element={<GlassLayout />}>
+                                <Route path="/" element={<FeedPage />} />
                                 <Route path="/kesfet" element={<ExplorePage />} />
-                                <Route path="/icerik/:id" element={<ContentDetailPage />} />
+                                <Route path="/icerik/:tip/:id" element={<DetailPage />} />
+                                <Route path="/icerik/:id" element={<DetailPage />} />
                                 <Route path="/profil/:username" element={<ProfilePage />} />
+                                <Route path="/ayarlar" element={<SettingsPage />} />
+                                <Route path="/kutuphane" element={<LibraryPage />} />
+                                <Route path="/listelerim" element={<ListsPage />} />
+                                <Route path="/begeniler" element={<LikesPage />} />
+                                <Route path="/bildirimler" element={<NotificationsPage />} />
                             </Route>
 
+                            {/* Fallback */}
                             <Route path="*" element={<Navigate to="/" replace />} />
                         </Routes>
-                        </BrowserRouter>
-                    </ErrorBoundary>
-                </AuthProvider>
-            </QueryClientProvider>
-        </MantineProvider>
+                    </AuthModalProvider>
+                </BrowserRouter>
+            </AuthProvider>
+        </QueryClientProvider>
     );
 }
 

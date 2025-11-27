@@ -54,9 +54,9 @@ export const externalApiService = {
     },
 
     // Google Books Arama
-    searchGoogleBooks: async (query: string, startIndex = 0, limit = 20) => {
+    searchGoogleBooks: async (query: string, startIndex = 0, limit = 20, orderBy?: 'relevance' | 'newest') => {
         const response = await api.get<ExternalBook[]>('/externalapi/books/search', {
-            params: { q: query, baslangic: startIndex, limit }
+            params: { q: query, baslangic: startIndex, limit, orderBy }
         });
         return response.data;
     },

@@ -53,14 +53,18 @@ namespace Saga.Server.Services
             }
         }
 
-        public async Task<List<GoogleBookDto>> SearchBooksAsync(string query, int startIndex = 0, int maxResults = 20)
+        public async Task<List<GoogleBookDto>> SearchBooksAsync(string query, int startIndex = 0, int maxResults = 20, string? orderBy = null)
         {
             try
             {
                 var encodedQuery = Uri.EscapeDataString(query);
+                // orderBy: relevance (varsayılan) veya newest
+                var order = string.IsNullOrEmpty(orderBy) ? "relevance" : orderBy;
                 var url = string.IsNullOrEmpty(_apiKey)
-                    ? $"{BaseUrl}/volumes?q={encodedQuery}&startIndex={startIndex}&maxResults={maxResults}&langRestrict=tr"
-                    : $"{BaseUrl}/volumes?q={encodedQuery}&startIndex={startIndex}&maxResults={maxResults}&langRestrict=tr&key={_apiKey}";
+                    ? $"{BaseUrl}/volumes?q={encodedQuery}&startIndex={startIndex}&maxResults={maxResults}&orderBy={order}"
+                    : $"{BaseUrl}/volumes?q={encodedQuery}&startIndex={startIndex}&maxResults={maxResults}&orderBy={order}&key={_apiKey}";
+
+                _logger.LogInformation("📚 Google Books API isteği: {Url}", url);
 
                 var response = await _httpClient.GetAsync(url);
 
@@ -117,6 +121,17 @@ namespace Saga.Server.Services
                     return null;
                 }
 
+                // Meta veriyi JSON olarak hazırla
+                var metaVeri = new
+                {
+                    yazarlar = bookDto.Yazarlar,
+                    sayfaSayisi = bookDto.SayfaSayisi,
+                    kategoriler = bookDto.Kategoriler,
+                    yayinevi = bookDto.Yayinevi,
+                    isbn = bookDto.ISBN,
+                    dil = bookDto.Dil
+                };
+
                 // Veritabanına kaydet
                 var icerik = new Icerik
                 {
@@ -127,6 +142,9 @@ namespace Saga.Server.Services
                     Aciklama = bookDto.Aciklama,
                     PosterUrl = bookDto.PosterUrl,
                     YayinTarihi = ParseDateOnly(bookDto.YayinTarihi),
+                    HariciPuan = bookDto.OrtalamaPuan.HasValue ? (decimal)(bookDto.OrtalamaPuan.Value * 2) : 0, // 5 üzerinden 10'a çevir
+                    HariciOySayisi = bookDto.OySayisi ?? 0,
+                    MetaVeri = JsonSerializer.Serialize(metaVeri),
                     OlusturulmaZamani = DateTime.UtcNow
                 };
 
@@ -212,6 +230,25 @@ namespace Saga.Server.Services
                 dto.OySayisi = volumeInfo.TryGetProperty("ratingsCount", out var ratingsCount) 
                     ? ratingsCount.GetInt32() 
                     : null;
+
+                // Yayınevi
+                dto.Yayinevi = volumeInfo.TryGetProperty("publisher", out var publisher) 
+                    ? publisher.GetString() 
+                    : null;
+
+                // ISBN
+                if (volumeInfo.TryGetProperty("industryIdentifiers", out var identifiers))
+                {
+                    foreach (var identifier in identifiers.EnumerateArray())
+                    {
+                        if (identifier.TryGetProperty("type", out var type) && 
+                            (type.GetString() == "ISBN_13" || type.GetString() == "ISBN_10"))
+                        {
+                            dto.ISBN = identifier.TryGetProperty("identifier", out var isbn) ? isbn.GetString() : null;
+                            if (type.GetString() == "ISBN_13") break; // ISBN_13'ü tercih et
+                        }
+                    }
+                }
 
                 return dto;
             }

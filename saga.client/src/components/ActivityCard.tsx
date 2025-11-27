@@ -93,7 +93,7 @@ function PuanGoster({ puan }: { puan: number }) {
 
 export function ActivityCard({ aktivite, onLike, onComment }: ActivityCardProps) {
   const navigate = useNavigate();
-  const { kullaniciId, kullaniciAdi, kullaniciAvatar, aktiviteTuru, olusturulmaZamani, veri } = aktivite;
+  const { kullaniciAdi, kullaniciAvatar, aktiviteTuru, olusturulmaZamani, veri } = aktivite;
 
   // Zaman formatı
   const tarihStr = formatDistanceToNow(new Date(olusturulmaZamani), {

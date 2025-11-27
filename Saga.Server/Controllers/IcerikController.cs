@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Saga.Server.Data;
 using Saga.Server.DTOs;
 using Saga.Server.Models;
+using System.Text.Json;
 
 namespace Saga.Server.Controllers
 {
@@ -70,6 +71,8 @@ namespace Saga.Server.Controllers
                 YayinTarihi = icerik.YayinTarihi,
                 OrtalamaPuan = icerik.OrtalamaPuan,
                 PuanlamaSayisi = icerik.PuanlamaSayisi,
+                HariciPuan = icerik.HariciPuan,
+                HariciOySayisi = icerik.HariciOySayisi,
                 YorumSayisi = yorumSayisi,
                 ListeyeEklenmeSayisi = listeyeEklenmeSayisi,
                 GoruntulemeSayisi = icerik.GoruntulemeSayisi,
@@ -78,6 +81,110 @@ namespace Saga.Server.Controllers
                 KullaniciPuani = kullaniciPuani,
                 KullanicininDurumu = kullanicininDurumu
             };
+
+            // Meta veriyi parse et
+            if (!string.IsNullOrEmpty(icerik.MetaVeri) && icerik.MetaVeri != "{}")
+            {
+                try
+                {
+                    var metaDoc = JsonDocument.Parse(icerik.MetaVeri);
+                    var root = metaDoc.RootElement;
+
+                    // Film/Dizi meta verileri
+                    if (root.TryGetProperty("yonetmen", out var yonetmen) && yonetmen.ValueKind != JsonValueKind.Null)
+                    {
+                        response.Yonetmen = yonetmen.GetString();
+                    }
+
+                    if (root.TryGetProperty("oyuncular", out var oyuncular) && oyuncular.ValueKind == JsonValueKind.Array)
+                    {
+                        response.Oyuncular = new List<OyuncuInfoDto>();
+                        foreach (var oyuncu in oyuncular.EnumerateArray())
+                        {
+                            response.Oyuncular.Add(new OyuncuInfoDto
+                            {
+                                Ad = oyuncu.TryGetProperty("ad", out var ad) ? ad.GetString() ?? "" : "",
+                                Karakter = oyuncu.TryGetProperty("karakter", out var karakter) ? karakter.GetString() : null,
+                                ProfilUrl = oyuncu.TryGetProperty("profilUrl", out var profil) ? profil.GetString() : null
+                            });
+                        }
+                    }
+
+                    if (root.TryGetProperty("turler", out var turler) && turler.ValueKind == JsonValueKind.Array)
+                    {
+                        response.Turler = new List<string>();
+                        foreach (var tur in turler.EnumerateArray())
+                        {
+                            var turStr = tur.GetString();
+                            if (!string.IsNullOrEmpty(turStr))
+                            {
+                                response.Turler.Add(turStr);
+                            }
+                        }
+                    }
+
+                    if (root.TryGetProperty("sure", out var sure) && sure.ValueKind == JsonValueKind.Number)
+                    {
+                        response.Sure = sure.GetInt32();
+                    }
+
+                    if (root.TryGetProperty("sezonSayisi", out var sezon) && sezon.ValueKind == JsonValueKind.Number)
+                    {
+                        response.SezonSayisi = sezon.GetInt32();
+                    }
+
+                    if (root.TryGetProperty("bolumSayisi", out var bolum) && bolum.ValueKind == JsonValueKind.Number)
+                    {
+                        response.BolumSayisi = bolum.GetInt32();
+                    }
+
+                    // Kitap meta verileri
+                    if (root.TryGetProperty("yazarlar", out var yazarlar) && yazarlar.ValueKind == JsonValueKind.Array)
+                    {
+                        response.Yazarlar = new List<string>();
+                        foreach (var yazar in yazarlar.EnumerateArray())
+                        {
+                            var yazarStr = yazar.GetString();
+                            if (!string.IsNullOrEmpty(yazarStr))
+                            {
+                                response.Yazarlar.Add(yazarStr);
+                            }
+                        }
+                    }
+
+                    if (root.TryGetProperty("sayfaSayisi", out var sayfa) && sayfa.ValueKind == JsonValueKind.Number)
+                    {
+                        response.SayfaSayisi = sayfa.GetInt32();
+                    }
+
+                    if (root.TryGetProperty("yayinevi", out var yayinevi) && yayinevi.ValueKind != JsonValueKind.Null)
+                    {
+                        response.Yayinevi = yayinevi.GetString();
+                    }
+
+                    if (root.TryGetProperty("isbn", out var isbn) && isbn.ValueKind != JsonValueKind.Null)
+                    {
+                        response.ISBN = isbn.GetString();
+                    }
+
+                    if (root.TryGetProperty("kategoriler", out var kategoriler) && kategoriler.ValueKind == JsonValueKind.Array)
+                    {
+                        response.Kategoriler = new List<string>();
+                        foreach (var kategori in kategoriler.EnumerateArray())
+                        {
+                            var kategoriStr = kategori.GetString();
+                            if (!string.IsNullOrEmpty(kategoriStr))
+                            {
+                                response.Kategoriler.Add(kategoriStr);
+                            }
+                        }
+                    }
+                }
+                catch (JsonException ex)
+                {
+                    _logger.LogWarning(ex, "Meta veri parse edilemedi: IcerikId={IcerikId}", id);
+                }
+            }
 
             return Ok(response);
         }
@@ -135,6 +242,7 @@ namespace Saga.Server.Controllers
                     Tur = i.Tur.ToString(),
                     PosterUrl = i.PosterUrl,
                     OrtalamaPuan = i.OrtalamaPuan,
+                    HariciPuan = i.HariciPuan,
                     YayinTarihi = i.YayinTarihi,
                     Aciklama = i.Aciklama != null && i.Aciklama.Length > 200
                         ? i.Aciklama.Substring(0, 200) + "..."
@@ -174,6 +282,7 @@ namespace Saga.Server.Controllers
                     Tur = i.Tur.ToString(),
                     PosterUrl = i.PosterUrl,
                     OrtalamaPuan = i.OrtalamaPuan,
+                    HariciPuan = i.HariciPuan,
                     YayinTarihi = i.YayinTarihi,
                     Aciklama = i.Aciklama != null && i.Aciklama.Length > 200
                         ? i.Aciklama.Substring(0, 200) + "..."
@@ -238,6 +347,8 @@ namespace Saga.Server.Controllers
                 Aciklama = i.Aciklama,
                 PosterUrl = i.PosterUrl,
                 OrtalamaPuan = i.OrtalamaPuan,
+                HariciPuan = i.HariciPuan,
+                HariciOySayisi = i.HariciOySayisi,
                 YayinTarihi = i.YayinTarihi,
                 PopulerlikSkoru = i.PopulerlikSkoru
             }).ToList();
@@ -279,6 +390,8 @@ namespace Saga.Server.Controllers
                 Aciklama = i.Aciklama,
                 PosterUrl = i.PosterUrl,
                 OrtalamaPuan = i.OrtalamaPuan,
+                HariciPuan = i.HariciPuan,
+                HariciOySayisi = i.HariciOySayisi,
                 YayinTarihi = i.YayinTarihi,
                 PopulerlikSkoru = i.PopulerlikSkoru,
                 PuanlamaSayisi = i.PuanlamaSayisi
@@ -314,6 +427,8 @@ namespace Saga.Server.Controllers
                 Aciklama = i.Aciklama,
                 PosterUrl = i.PosterUrl,
                 OrtalamaPuan = i.OrtalamaPuan,
+                HariciPuan = i.HariciPuan,
+                HariciOySayisi = i.HariciOySayisi,
                 PuanlamaSayisi = i.PuanlamaSayisi,
                 PopulerlikSkoru = i.PopulerlikSkoru,
                 YayinTarihi = i.YayinTarihi
@@ -350,6 +465,8 @@ namespace Saga.Server.Controllers
                 Aciklama = i.Aciklama,
                 PosterUrl = i.PosterUrl,
                 OrtalamaPuan = i.OrtalamaPuan,
+                HariciPuan = i.HariciPuan,
+                HariciOySayisi = i.HariciOySayisi,
                 PuanlamaSayisi = i.PuanlamaSayisi,
                 PopulerlikSkoru = i.PopulerlikSkoru,
                 YayinTarihi = i.YayinTarihi
@@ -410,6 +527,8 @@ namespace Saga.Server.Controllers
                     Aciklama = i.Aciklama,
                     PosterUrl = i.PosterUrl,
                     OrtalamaPuan = i.OrtalamaPuan,
+                    HariciPuan = i.HariciPuan,
+                    HariciOySayisi = i.HariciOySayisi,
                     PuanlamaSayisi = i.PuanlamaSayisi,
                     PopulerlikSkoru = i.PopulerlikSkoru,
                     YayinTarihi = i.YayinTarihi

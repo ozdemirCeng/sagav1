@@ -61,22 +61,22 @@ export default function AppLayout() {
                             <Menu shadow="md" width={200} position="bottom-end">
                                 <Menu.Target>
                                     <Avatar
-                                        src={user.user_metadata.avatar_url}
-                                        alt={user.user_metadata.kullanici_adi}
+                                        src={user.profilResmi}
+                                        alt={user.kullaniciAdi}
                                         radius="xl"
                                         style={{ cursor: 'pointer' }}
                                         color="blue"
                                     >
-                                        {user.user_metadata.kullanici_adi?.[0]?.toUpperCase()}
+                                        {user.kullaniciAdi?.[0]?.toUpperCase()}
                                     </Avatar>
                                 </Menu.Target>
 
                                 <Menu.Dropdown>
-                                    <Menu.Label>Hesabım ({user.user_metadata.kullanici_adi})</Menu.Label>
+                                    <Menu.Label>Hesabım ({user.kullaniciAdi})</Menu.Label>
 
                                     <Menu.Item
                                         leftSection={<IconUser style={{ width: rem(14), height: rem(14) }} />}
-                                        onClick={() => navigate(`/profil/${user.user_metadata.kullanici_adi}`)}
+                                        onClick={() => navigate(`/profil/${user.kullaniciAdi}`)}
                                     >
                                         Profilim
                                     </Menu.Item>

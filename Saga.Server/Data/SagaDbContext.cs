@@ -24,6 +24,14 @@ namespace Saga.Server.Data
         public DbSet<YorumBegeni> YorumBegenileri { get; set; }
         public DbSet<KutuphaneDurumu> KutuphaneDurumlari { get; set; }
         public DbSet<Bildirim> Bildirimler { get; set; }
+        
+        // Yeni tablolar
+        public DbSet<AktiviteBegeni> AktiviteBegenileri { get; set; }
+        public DbSet<AktiviteYorum> AktiviteYorumlari { get; set; }
+        public DbSet<AktiviteYorumBegeni> AktiviteYorumBegenileri { get; set; }
+        public DbSet<KullaniciAyarlari> KullaniciAyarlari { get; set; }
+        public DbSet<Engellenen> Engellenenler { get; set; }
+        public DbSet<IcerikFavori> IcerikFavorileri { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -37,6 +45,19 @@ namespace Saga.Server.Data
 
             modelBuilder.Entity<YorumBegeni>()
                 .HasKey(yb => new { yb.KullaniciId, yb.YorumId });
+            
+            // Yeni composite key'ler
+            modelBuilder.Entity<AktiviteBegeni>()
+                .HasKey(ab => new { ab.KullaniciId, ab.AktiviteId });
+            
+            modelBuilder.Entity<AktiviteYorumBegeni>()
+                .HasKey(ayb => new { ayb.KullaniciId, ayb.YorumId });
+            
+            modelBuilder.Entity<Engellenen>()
+                .HasKey(e => new { e.EngelleyenId, e.EngellenenId });
+            
+            modelBuilder.Entity<IcerikFavori>()
+                .HasKey(f => new { f.KullaniciId, f.IcerikId });
 
             // 2. JSONB AYARLARI
             // Bu kolonlar veritabanında JSON olarak saklanıyor
@@ -46,6 +67,10 @@ namespace Saga.Server.Data
 
             modelBuilder.Entity<Aktivite>()
                 .Property(b => b.Veri)
+                .HasColumnType("jsonb");
+            
+            modelBuilder.Entity<Bildirim>()
+                .Property(b => b.MetaVeri)
                 .HasColumnType("jsonb");
 
             // 3. ENUM AYARLARI (Hata almamak için string mapliyoruz)
@@ -100,6 +125,52 @@ namespace Saga.Server.Data
                 .WithMany(k => k.Yorumlari)
                 .HasForeignKey(y => y.KullaniciId)
                 .OnDelete(DeleteBehavior.Cascade);
+            
+            // Kullanıcı Ayarları ilişkisi (1-1)
+            modelBuilder.Entity<Kullanici>()
+                .HasOne(k => k.Ayarlar)
+                .WithOne(a => a.Kullanici)
+                .HasForeignKey<KullaniciAyarlari>(a => a.KullaniciId);
+            
+            // Aktivite Beğeni ilişkileri
+            modelBuilder.Entity<AktiviteBegeni>()
+                .HasOne(ab => ab.Aktivite)
+                .WithMany(a => a.Begeniler)
+                .HasForeignKey(ab => ab.AktiviteId);
+            
+            modelBuilder.Entity<AktiviteBegeni>()
+                .HasOne(ab => ab.Kullanici)
+                .WithMany()
+                .HasForeignKey(ab => ab.KullaniciId);
+            
+            // Aktivite Yorum ilişkileri
+            modelBuilder.Entity<AktiviteYorum>()
+                .HasOne(ay => ay.Aktivite)
+                .WithMany(a => a.AktiviteYorumlari)
+                .HasForeignKey(ay => ay.AktiviteId);
+            
+            modelBuilder.Entity<AktiviteYorum>()
+                .HasOne(ay => ay.Kullanici)
+                .WithMany()
+                .HasForeignKey(ay => ay.KullaniciId);
+            
+            // Aktivite Yorum yanıtları (self-referencing)
+            modelBuilder.Entity<AktiviteYorum>()
+                .HasOne(ay => ay.UstYorum)
+                .WithMany(ay => ay.Yanitlar)
+                .HasForeignKey(ay => ay.UstYorumId)
+                .OnDelete(DeleteBehavior.Cascade);
+            
+            // Aktivite Yorum Beğeni ilişkileri
+            modelBuilder.Entity<AktiviteYorumBegeni>()
+                .HasOne(ayb => ayb.Yorum)
+                .WithMany(ay => ay.Begeniler)
+                .HasForeignKey(ayb => ayb.YorumId);
+            
+            modelBuilder.Entity<AktiviteYorumBegeni>()
+                .HasOne(ayb => ayb.Kullanici)
+                .WithMany()
+                .HasForeignKey(ayb => ayb.KullaniciId);
         }
     }
 }

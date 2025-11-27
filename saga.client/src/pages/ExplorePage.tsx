@@ -22,15 +22,17 @@ import {
   Loader,
   Overlay,
   Tooltip,
+  Center,
 } from '@mantine/core';
-import { IconSearch, IconFilter, IconX, IconStar, IconTrendingUp, IconArrowRight, IconFlame } from '@tabler/icons-react';
-import { useSearchContent, useFilteredContent, usePopularContent, useTopRatedContent } from '../hooks/useIcerikler';
+import { IconSearch, IconFilter, IconX, IconStar, IconTrendingUp, IconArrowRight, IconFlame, IconLoader } from '@tabler/icons-react';
+import { usePopularContent, useTopRatedContent } from '../hooks/useIcerikler';
 import { useNavigate } from 'react-router';
 import { useDebouncedValue } from '@mantine/hooks';
 import { ContentCardSkeleton } from '../components/ContentCardSkeleton';
 import { EmptyState } from '../components/EmptyState';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import { externalApiService } from '../services/externalApiService';
+import { icerikService } from '../services/icerikService';
 import { notifications } from '@mantine/notifications';
 import { useAuth } from '../context/AuthContext';
 
@@ -115,18 +117,23 @@ function VitrinModulleri({ navigate }: { navigate: (path: string) => void }) {
           {icerik.baslik}
         </Text>
         <Flex justify="space-between" align="center">
-          <Badge size="xs" color={icerik.tur === 'film' ? 'blue' : 'green'} variant="light">
-            {icerik.tur === 'film' ? 'Film' : 'Kitap'}
+          <Badge size="xs" color={icerik.tur === 'film' ? 'blue' : icerik.tur === 'dizi' ? 'violet' : 'green'} variant="light">
+            {icerik.tur === 'film' ? 'Film' : icerik.tur === 'dizi' ? 'Dizi' : 'Kitap'}
           </Badge>
-          {(icerik.ortalamaPuan ?? 0) > 0 && (
-            <Group gap={2}>
-              <IconStar size={12} fill="gold" color="gold" />
-              <Text size="xs" fw={500}>
-                {icerik.ortalamaPuan.toFixed(1)}
-              </Text>
-            </Group>
-          )}
         </Flex>
+        {/* İkili Puan Gösterimi - Her zaman ikisi de gösterilir */}
+        <Stack gap={2}>
+          <Tooltip label={icerik.tur === 'kitap' ? 'Google Books Puanı' : 'TMDB Puanı'} position="top">
+            <Badge size="xs" color="orange" variant="filled" leftSection={<IconStar size={10} />}>
+              {(icerik.hariciPuan ?? 0) > 0 ? icerik.hariciPuan.toFixed(1) : '-'} {icerik.tur === 'kitap' ? 'Google' : 'TMDB'}
+            </Badge>
+          </Tooltip>
+          <Tooltip label="SAGA Puanı" position="top">
+            <Badge size="xs" color="blue" variant="filled" leftSection={<IconStar size={10} />}>
+              {(icerik.ortalamaPuan ?? 0) > 0 ? icerik.ortalamaPuan.toFixed(1) : '-'} SAGA
+            </Badge>
+          </Tooltip>
+        </Stack>
       </Stack>
     </Card>
   );
@@ -212,6 +219,12 @@ export default function ExplorePage() {
   const [debouncedQuery] = useDebouncedValue(searchQuery, 500);
   const [activeTab, setActiveTab] = useState<'database' | 'tmdb' | 'books'>('database');
   const [importingId, setImportingId] = useState<string | null>(null);
+  
+  // Kitaplar için sıralama
+  const [bookSort, setBookSort] = useState<'relevance' | 'newest'>('relevance');
+
+  // Debug log
+  console.log('🏠 ExplorePage render - activeTab:', activeTab);
 
   // Filtre state
   const [showFilters, setShowFilters] = useState(false);
@@ -221,6 +234,9 @@ export default function ExplorePage() {
   const [maxPuan, setMaxPuan] = useState<number | undefined>(undefined);
   const [minYil, setMinYil] = useState<number | undefined>(undefined);
   const [maxYil, setMaxYil] = useState<number | undefined>(undefined);
+
+  // Sayfalama için limit
+  const PAGE_LIMIT = 20;
 
   // Import mutations
   const importTmdbMutation = useMutation({
@@ -293,17 +309,43 @@ export default function ExplorePage() {
   const isSearching = debouncedQuery.length > 2;
   const hasFilters = tur || turler.length > 0 || minPuan || maxPuan || minYil || maxYil;
 
-  // Query hooks - Database
-  const { data: searchResults, isLoading: searchLoading } = useSearchContent(debouncedQuery, { enabled: isSearching && activeTab === 'database' });
-  const { data: filterResults, isLoading: filterLoading } = useFilteredContent({
-    tur,
-    turler: turler.length > 0 ? turler : undefined,
-    minPuan,
-    maxPuan,
-    minYil,
-    maxYil,
-    limit: 50
-  }, { enabled: activeTab === 'database' });
+  // Database içerikleri - Infinite Query ile sayfalama
+  const {
+    data: databaseData,
+    isLoading: databaseLoading,
+    fetchNextPage: fetchNextDatabase,
+    hasNextPage: hasNextDatabase,
+    isFetchingNextPage: isFetchingNextDatabase,
+  } = useInfiniteQuery({
+    queryKey: ['icerikler', 'explore', { isSearching, debouncedQuery, tur, turler, minPuan, maxPuan, minYil, maxYil }],
+    queryFn: async ({ pageParam = 1 }) => {
+      if (isSearching) {
+        return icerikService.searchPaginated(debouncedQuery, { sayfa: pageParam, limit: PAGE_LIMIT });
+      } else {
+        return icerikService.filterPaginated({
+          tur,
+          turler: turler.length > 0 ? turler : undefined,
+          minPuan,
+          maxPuan,
+          minYil,
+          maxYil,
+          sayfa: pageParam,
+          limit: PAGE_LIMIT,
+        });
+      }
+    },
+    getNextPageParam: (lastPage, pages) => {
+      console.log('getNextPageParam - lastPage.toplamSayfa:', lastPage.toplamSayfa, 'pages.length:', pages.length);
+      console.log('hasMore:', pages.length < lastPage.toplamSayfa);
+      if (pages.length < lastPage.toplamSayfa) {
+        return pages.length + 1;
+      }
+      return undefined;
+    },
+    initialPageParam: 1,
+    enabled: activeTab === 'database',
+    staleTime: 30000,
+  });
 
   // Query hooks - External APIs
   const { data: tmdbResults, isLoading: tmdbLoading } = useQuery({
@@ -312,34 +354,42 @@ export default function ExplorePage() {
     enabled: activeTab === 'tmdb'
   });
 
-  const { data: booksResults, isLoading: booksLoading } = useQuery({
-    queryKey: ['books-search', debouncedQuery],
-    queryFn: () => externalApiService.searchGoogleBooks(debouncedQuery, 0, 40),
-    enabled: activeTab === 'books' && isSearching
+  // Kitaplar için varsayılan arama terimi
+  const booksSearchTerm = debouncedQuery.length > 2 ? debouncedQuery : 'bestseller';
+  
+  // Kitaplar - basit useQuery ile test
+  const {
+    data: booksResults,
+    isLoading: booksLoading,
+    isFetching: isFetchingBooks,
+  } = useQuery({
+    queryKey: ['books-search', booksSearchTerm, bookSort],
+    queryFn: async () => {
+      console.log('🔍 Kitap araması yapılıyor:', booksSearchTerm, bookSort);
+      const results = await externalApiService.searchGoogleBooks(booksSearchTerm, 0, 40, bookSort);
+      console.log('📚 Kitap sonuçları:', results.length);
+      return results;
+    },
+    enabled: activeTab === 'books',
+    staleTime: 0,
   });
-
-  // Initial load for "all content" if no search/filter
-  const { data: allContent, isLoading: allContentLoading } = useFilteredContent({
-    limit: 50
-  }, { enabled: activeTab === 'database' && !isSearching && !hasFilters });
 
   // Determine which results to display
   let displayResults: any[] = [];
   let isContentLoading = false;
+  let toplamKayit = 0;
 
   if (activeTab === 'database') {
-    displayResults = isSearching 
-      ? searchResults ?? []
-      : hasFilters 
-        ? filterResults ?? []
-        : allContent ?? [];
-    isContentLoading = isSearching ? searchLoading : hasFilters ? filterLoading : allContentLoading;
+    displayResults = databaseData?.pages.flatMap(page => page.data) ?? [];
+    isContentLoading = databaseLoading;
+    toplamKayit = databaseData?.pages[0]?.toplamKayit ?? 0;
   } else if (activeTab === 'tmdb') {
     displayResults = (tmdbResults ?? []).map(film => ({
       id: film.id,
       baslik: film.baslik,
       posterUrl: film.posterUrl,
-      ortalamaPuan: film.puan,
+      hariciPuan: film.puan, // TMDB puanı harici puan olarak
+      ortalamaPuan: 0, // Platform puanı yok (henüz import edilmedi)
       tur: 'film' as const,
       yayinTarihi: film.yayinTarihi,
       aciklama: film.aciklama,
@@ -347,11 +397,13 @@ export default function ExplorePage() {
       externalId: film.id
     }));
     isContentLoading = tmdbLoading;
+    toplamKayit = displayResults.length;
   } else if (activeTab === 'books') {
     displayResults = (booksResults ?? []).map(book => ({
       id: book.id,
       baslik: book.baslik,
       posterUrl: book.posterUrl,
+      hariciPuan: book.ortalamaPuan ? book.ortalamaPuan * 2 : 0, // Google 5 üzerinden, 10'a çevir
       ortalamaPuan: 0,
       tur: 'kitap' as const,
       yayinTarihi: book.yayinTarihi,
@@ -359,7 +411,8 @@ export default function ExplorePage() {
       isExternal: true,
       externalId: book.id
     }));
-    isContentLoading = booksLoading;
+    isContentLoading = booksLoading || isFetchingBooks;
+    toplamKayit = displayResults.length;
   }
 
   const handleClearFilters = () => {
@@ -382,7 +435,10 @@ export default function ExplorePage() {
         <Title order={1}>Keşfet</Title>
 
         {/* Tabs for different sources */}
-        <Tabs value={activeTab} onChange={(value) => setActiveTab(value as any)}>
+        <Tabs value={activeTab} onChange={(value) => {
+          console.log('🔄 Tab değişti:', value);
+          setActiveTab(value as any);
+        }}>
           <Tabs.List>
             <Tabs.Tab value="database">Tümü</Tabs.Tab>
             <Tabs.Tab value="tmdb">TMDB'de Ara</Tabs.Tab>
@@ -522,6 +578,23 @@ export default function ExplorePage() {
         </Paper>
         )}
 
+        {/* Kitaplar için sıralama seçeneği */}
+        {activeTab === 'books' && (
+          <Group>
+            <Select
+              label="Sıralama"
+              placeholder="Sıralama seç"
+              value={bookSort}
+              onChange={(value) => setBookSort(value as 'relevance' | 'newest')}
+              data={[
+                { value: 'relevance', label: 'İlgililik' },
+                { value: 'newest', label: 'En Yeni' },
+              ]}
+              w={200}
+            />
+          </Group>
+        )}
+
         {/* Vitrin Modülleri - Sadece database tab ve arama/filtre yokken */}
         {activeTab === 'database' && !isSearching && !hasFilters && (
           <VitrinModulleri navigate={navigate} />
@@ -539,7 +612,10 @@ export default function ExplorePage() {
         ) : displayResults && displayResults.length > 0 ? (
           <>
             <Text c="dimmed">
-              {displayResults.length} sonuç bulundu
+              {activeTab === 'database' 
+                ? `${displayResults.length} / ${toplamKayit} içerik gösteriliyor`
+                : `${displayResults.length} sonuç bulundu`
+              }
             </Text>
             <Grid>
               {displayResults.map((icerik) => (
@@ -595,24 +671,35 @@ export default function ExplorePage() {
                       </Text>
 
                       <Flex justify="space-between" align="center">
-                        <Badge color={icerik.tur === 'film' ? 'blue' : 'green'} variant="light">
-                          {icerik.tur === 'film' ? 'Film' : 'Kitap'}
+                        <Badge color={icerik.tur === 'film' ? 'blue' : icerik.tur === 'dizi' ? 'violet' : 'green'} variant="light">
+                          {icerik.tur === 'film' ? 'Film' : icerik.tur === 'dizi' ? 'Dizi' : 'Kitap'}
                         </Badge>
-
-                        {(icerik.ortalamaPuan ?? 0) > 0 && (
-                          <Tooltip 
-                            label={icerik.isExternal ? (icerik.tur === 'film' ? 'TMDB Puanı' : 'Google Puanı') : 'Platform Puanı'}
-                            position="top"
-                          >
-                            <Group gap={4}>
-                              <IconStar size={14} fill="gold" color="gold" />
-                              <Text size="xs" fw={500}>
-                                {icerik.ortalamaPuan.toFixed(1)}
-                              </Text>
-                            </Group>
-                          </Tooltip>
-                        )}
                       </Flex>
+
+                      {/* İkili Puan Gösterimi - Her zaman ikisi de gösterilir */}
+                      <Stack gap={4}>
+                        {/* Harici Puan (TMDB/Google) */}
+                        <Tooltip 
+                          label={icerik.tur === 'kitap' ? 'Google Books Puanı' : 'TMDB Puanı'} 
+                          position="top"
+                        >
+                          <Badge size="sm" color="orange" variant="filled" leftSection={<IconStar size={12} />}>
+                            {icerik.isExternal 
+                              ? (icerik.hariciPuan ?? icerik.ortalamaPuan ?? 0).toFixed(1)
+                              : (icerik.hariciPuan ?? 0) > 0 ? icerik.hariciPuan.toFixed(1) : '-'
+                            } {icerik.tur === 'kitap' ? 'Google' : 'TMDB'}
+                          </Badge>
+                        </Tooltip>
+                        {/* Platform Puanı (SAGA) - Her zaman göster */}
+                        <Tooltip label="SAGA Puanı" position="top">
+                          <Badge size="sm" color="blue" variant="filled" leftSection={<IconStar size={12} />}>
+                            {icerik.isExternal 
+                              ? '-' 
+                              : (icerik.ortalamaPuan ?? 0) > 0 ? icerik.ortalamaPuan.toFixed(1) : '-'
+                            } SAGA
+                          </Badge>
+                        </Tooltip>
+                      </Stack>
 
                       {icerik.yayinTarihi && (
                         <Text size="xs" c="dimmed">
@@ -624,6 +711,21 @@ export default function ExplorePage() {
                 </Grid.Col>
               ))}
             </Grid>
+            
+            {/* Daha Fazla Yükle Butonu - Database tab için */}
+            {activeTab === 'database' && hasNextDatabase && (
+              <Center py="xl">
+                <Button
+                  variant="light"
+                  size="md"
+                  onClick={() => fetchNextDatabase()}
+                  loading={isFetchingNextDatabase}
+                  leftSection={!isFetchingNextDatabase && <IconLoader size={16} />}
+                >
+                  {isFetchingNextDatabase ? 'Yükleniyor...' : 'Daha Fazla Yükle'}
+                </Button>
+              </Center>
+            )}
           </>
         ) : (isSearching || hasFilters) ? (
           <EmptyState
