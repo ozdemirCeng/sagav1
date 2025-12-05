@@ -53,8 +53,15 @@ namespace Saga.Server.DTOs
         // Puanlama için
         public decimal? Puan { get; set; }
         
+        // Platform ve harici puanlar
+        public decimal? OrtalamaPuan { get; set; } // Saga platform ortalaması
+        public decimal? HariciPuan { get; set; } // TMDB/IMDB puanı
+        
         // Yorum için
         public string? YorumOzet { get; set; }
+        public bool? SpoilerIceriyor { get; set; }
+        public long? YorumId { get; set; }
+        public int? YorumTamUzunluk { get; set; } // Tam yorum uzunluğu
         
         // Liste için
         public string? ListeAdi { get; set; }
@@ -65,6 +72,14 @@ namespace Saga.Server.DTOs
         
         // Durum güncelleme için
         public string? Durum { get; set; }
+        
+        // Detay bilgileri (feed.html ile uyumlu)
+        public int? Yil { get; set; }
+        public string? Sure { get; set; }
+        public int? SezonSayisi { get; set; }
+        public int? BolumSayisi { get; set; }
+        public int? SayfaSayisi { get; set; }
+        public string? Yazar { get; set; }
     }
 
     // Aktivite yanıtı

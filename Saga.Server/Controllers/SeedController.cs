@@ -258,5 +258,45 @@ namespace Saga.Server.Controllers
                 return StatusCode(500, ex.Message);
             }
         }
+
+        // POST: api/seed/fix-tur
+        // HariciId'si "tv:" ile başlayan içeriklerin türünü "dizi" olarak düzelt
+        [HttpPost("fix-tur")]
+        public async Task<IActionResult> FixContentTypes()
+        {
+            Console.WriteLine("🔧 İçerik türleri düzeltiliyor...");
+
+            try
+            {
+                // tv: ile başlayan ama film olarak işaretli içerikleri bul
+                var yanlisIcerikler = await _context.Icerikler
+                    .Where(i => i.HariciId.StartsWith("tv:") && i.Tur == IcerikTuru.film)
+                    .ToListAsync();
+
+                Console.WriteLine($"📌 {yanlisIcerikler.Count} adet yanlış türlü içerik bulundu.");
+
+                foreach (var icerik in yanlisIcerikler)
+                {
+                    Console.WriteLine($"  - {icerik.Baslik} ({icerik.HariciId}): film -> dizi");
+                    icerik.Tur = IcerikTuru.dizi;
+                }
+
+                await _context.SaveChangesAsync();
+
+                Console.WriteLine($"✅ {yanlisIcerikler.Count} içerik düzeltildi.");
+
+                return Ok(new
+                {
+                    message = "İçerik türleri düzeltildi",
+                    duzeltilen = yanlisIcerikler.Count,
+                    icerikler = yanlisIcerikler.Select(i => new { i.Id, i.Baslik, i.HariciId }).ToList()
+                });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"🔥 Tür düzeltme hatası: {ex.Message}");
+                return StatusCode(500, ex.Message);
+            }
+        }
     }
 }

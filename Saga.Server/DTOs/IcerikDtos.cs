@@ -16,6 +16,11 @@ namespace Saga.Server.DTOs
         public int HariciOySayisi { get; set; }
         public decimal PopulerlikSkoru { get; set; }
         public DateOnly? YayinTarihi { get; set; }
+        // Süre ve bölüm bilgileri
+        public int? Sure { get; set; } // Film süresi (dakika)
+        public int? SezonSayisi { get; set; } // Diziler için sezon sayısı
+        public int? BolumSayisi { get; set; } // Diziler için bölüm sayısı
+        public int? SayfaSayisi { get; set; } // Kitaplar için sayfa sayısı
     }
 
     // Detay sayfası için tam DTO

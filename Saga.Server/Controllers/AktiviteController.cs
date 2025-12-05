@@ -726,15 +726,86 @@ namespace Saga.Server.Controllers
         {
             var veri = new AktiviteVeriDto();
 
+            // Yardımcı metod: İçerik detaylarını doldur
+            void FillIcerikDetails(Icerik? icerik)
+            {
+                if (icerik == null) return;
+                
+                veri.Baslik = icerik.Baslik;
+                veri.PosterUrl = icerik.PosterUrl;
+                veri.Tur = icerik.Tur.ToString(); // Başlangıçta enum değerini al
+                veri.Yil = icerik.YayinTarihi?.Year;
+                
+                // Platform ve harici puanları ekle
+                veri.OrtalamaPuan = icerik.OrtalamaPuan;
+                veri.HariciPuan = icerik.HariciPuan;
+                
+                // MetaVeri'den ek bilgileri çek (IcerikController ile aynı key isimleri)
+                if (!string.IsNullOrEmpty(icerik.MetaVeri) && icerik.MetaVeri != "{}")
+                {
+                    try
+                    {
+                        var metaDoc = JsonDocument.Parse(icerik.MetaVeri);
+                        var root = metaDoc.RootElement;
+                        
+                        // Film için süre (sure key'i - dakika cinsinden)
+                        if (root.TryGetProperty("sure", out var sure) && sure.ValueKind == JsonValueKind.Number)
+                        {
+                            var dakika = sure.GetInt32();
+                            var saat = dakika / 60;
+                            var dk = dakika % 60;
+                            veri.Sure = saat > 0 ? $"{saat}s {dk}dk" : $"{dk}dk";
+                        }
+                        
+                        // Dizi için sezon ve bölüm sayısı
+                        if (root.TryGetProperty("sezonSayisi", out var sezon) && sezon.ValueKind == JsonValueKind.Number)
+                            veri.SezonSayisi = sezon.GetInt32();
+                        if (root.TryGetProperty("bolumSayisi", out var bolum) && bolum.ValueKind == JsonValueKind.Number)
+                            veri.BolumSayisi = bolum.GetInt32();
+                            
+                        // Kitap için sayfa sayısı ve yazar
+                        if (root.TryGetProperty("sayfaSayisi", out var sayfa) && sayfa.ValueKind == JsonValueKind.Number)
+                            veri.SayfaSayisi = sayfa.GetInt32();
+                        if (root.TryGetProperty("yazarlar", out var yazarlar) && yazarlar.ValueKind == JsonValueKind.Array)
+                        {
+                            var authorList = new List<string>();
+                            foreach (var yazar in yazarlar.EnumerateArray())
+                            {
+                                var yazarStr = yazar.GetString();
+                                if (!string.IsNullOrEmpty(yazarStr))
+                                    authorList.Add(yazarStr);
+                            }
+                            veri.Yazar = string.Join(", ", authorList);
+                        }
+                    }
+                    catch { }
+                }
+                
+                // Type correction: MetaVeri bilgilerine göre tür düzeltmesi
+                // SezonSayisi veya BolumSayisi varsa bu bir Dizi'dir
+                if ((veri.SezonSayisi > 0 || veri.BolumSayisi > 0) && veri.Tur != "Dizi")
+                {
+                    veri.Tur = "Dizi";
+                }
+                // SayfaSayisi varsa bu bir Kitap'tır
+                else if (veri.SayfaSayisi > 0 && veri.Tur != "Kitap")
+                {
+                    veri.Tur = "Kitap";
+                }
+                // Sure varsa ve Dizi/Kitap değilse Film'dir
+                else if (!string.IsNullOrEmpty(veri.Sure) && veri.Tur != "Dizi" && veri.Tur != "Kitap")
+                {
+                    veri.Tur = "Film";
+                }
+            }
+
             switch (aktivite.AktiviteTuru)
             {
                 case AktiviteTuru.puanlama:
                     if (aktivite.Puanlama != null)
                     {
                         var icerik = await _context.Icerikler.FindAsync(aktivite.Puanlama.IcerikId);
-                        veri.Baslik = icerik?.Baslik;
-                        veri.PosterUrl = icerik?.PosterUrl;
-                        veri.Tur = icerik?.Tur.ToString();
+                        FillIcerikDetails(icerik);
                         veri.Puan = aktivite.Puanlama.Puan;
                     }
                     break;
@@ -743,12 +814,13 @@ namespace Saga.Server.Controllers
                     if (aktivite.Yorum != null)
                     {
                         var icerik = await _context.Icerikler.FindAsync(aktivite.Yorum.IcerikId);
-                        veri.Baslik = icerik?.Baslik;
-                        veri.PosterUrl = icerik?.PosterUrl;
-                        veri.Tur = icerik?.Tur.ToString();
-                        veri.YorumOzet = aktivite.Yorum.IcerikMetni.Length > 100
-                            ? aktivite.Yorum.IcerikMetni.Substring(0, 100) + "..."
+                        FillIcerikDetails(icerik);
+                        veri.YorumTamUzunluk = aktivite.Yorum.IcerikMetni.Length;
+                        veri.YorumOzet = aktivite.Yorum.IcerikMetni.Length > 200
+                            ? aktivite.Yorum.IcerikMetni.Substring(0, 200) + "..."
                             : aktivite.Yorum.IcerikMetni;
+                        veri.SpoilerIceriyor = aktivite.Yorum.SpoilerIceriyor;
+                        veri.YorumId = aktivite.Yorum.Id;
                     }
                     break;
 
@@ -756,9 +828,7 @@ namespace Saga.Server.Controllers
                     if (aktivite.Liste != null && aktivite.Icerik != null)
                     {
                         veri.ListeAdi = aktivite.Liste.Ad;
-                        veri.Baslik = aktivite.Icerik.Baslik;
-                        veri.PosterUrl = aktivite.Icerik.PosterUrl;
-                        veri.Tur = aktivite.Icerik.Tur.ToString();
+                        FillIcerikDetails(aktivite.Icerik);
                     }
                     break;
 
@@ -784,9 +854,7 @@ namespace Saga.Server.Controllers
                 case AktiviteTuru.durum_guncelleme:
                     if (aktivite.Icerik != null)
                     {
-                        veri.Baslik = aktivite.Icerik.Baslik;
-                        veri.PosterUrl = aktivite.Icerik.PosterUrl;
-                        veri.Tur = aktivite.Icerik.Tur.ToString();
+                        FillIcerikDetails(aktivite.Icerik);
 
                         // Veri JSONB'den durum bilgisini al
                         try

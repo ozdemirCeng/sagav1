@@ -1,6 +1,6 @@
 ﻿/* Saga - Global Styles */
 
-/* Smooth scroll */
+/* Scroll - sayfalar arası animasyonsuz geçiş */
 html {
-  scroll-behavior: smooth;
+  /* scroll-behavior varsayılan auto kalacak */
 }

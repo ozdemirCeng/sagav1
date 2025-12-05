@@ -20,6 +20,21 @@ namespace Saga.Server.Controllers
             _logger = logger;
         }
 
+        // İçeriğin ortalama puanını güncelle
+        private async Task UpdateIcerikOrtalamaPuanAsync(long icerikId)
+        {
+            var ortalama = await _context.Puanlamalar
+                .Where(p => p.IcerikId == icerikId)
+                .AverageAsync(p => (decimal?)p.Puan) ?? 0;
+
+            var icerik = await _context.Icerikler.FindAsync(icerikId);
+            if (icerik != null)
+            {
+                icerik.OrtalamaPuan = Math.Round(ortalama, 1);
+                await _context.SaveChangesAsync();
+            }
+        }
+
         // POST: api/puanlama
         [HttpPost]
         [Authorize]
@@ -50,6 +65,9 @@ namespace Saga.Server.Controllers
 
                 _context.Puanlamalar.Add(puanlama);
                 await _context.SaveChangesAsync();
+
+                // İçeriğin ortalama puanını güncelle
+                await UpdateIcerikOrtalamaPuanAsync(dto.IcerikId);
 
                 // Aktivite kaydı artık PostgreSQL trigger'ı ile otomatik oluşturuluyor (veritabaniyapisi -> aktivite_ekle_puanlama)
                 // Bu yüzden burada manuel Aktivite eklemiyoruz ki çift kayıt oluşmasın.
@@ -135,6 +153,9 @@ namespace Saga.Server.Controllers
 
                 await _context.SaveChangesAsync();
 
+                // İçeriğin ortalama puanını güncelle
+                await UpdateIcerikOrtalamaPuanAsync(puanlama.IcerikId);
+
                 var response = new PuanlamaResponseDto
                 {
                     Id = puanlama.Id,
@@ -179,8 +200,12 @@ namespace Saga.Server.Controllers
                     return Forbid();
                 }
 
+                var icerikId = puanlama.IcerikId;
                 _context.Puanlamalar.Remove(puanlama);
                 await _context.SaveChangesAsync();
+
+                // İçeriğin ortalama puanını güncelle
+                await UpdateIcerikOrtalamaPuanAsync(icerikId);
 
                 return NoContent();
             }
@@ -312,6 +337,34 @@ namespace Saga.Server.Controllers
             }).ToList();
 
             return Ok(response);
+        }
+
+        // POST: api/puanlama/sync-averages (Mevcut tüm içeriklerin ortalama puanlarını güncelle - bir kerelik kullanım)
+        [HttpPost("sync-averages")]
+        [Authorize]
+        public async Task<ActionResult> SyncAllAverages()
+        {
+            try
+            {
+                // Puanlanmış tüm içeriklerin ID'lerini al
+                var icerikIds = await _context.Puanlamalar
+                    .Where(p => !p.Silindi)
+                    .Select(p => p.IcerikId)
+                    .Distinct()
+                    .ToListAsync();
+
+                foreach (var icerikId in icerikIds)
+                {
+                    await UpdateIcerikOrtalamaPuanAsync(icerikId);
+                }
+
+                return Ok(new { message = $"{icerikIds.Count} içeriğin ortalama puanı güncellendi." });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ortalama puanlar senkronize edilirken hata");
+                return StatusCode(500, new { message = "Ortalama puanlar güncellenirken bir hata oluştu." });
+            }
         }
 
         // Helper Methods

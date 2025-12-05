@@ -1,820 +1,284 @@
-import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
-import {
-  Star,
-  Film,
-  BookOpen,
-  ArrowLeft,
-  Plus,
-  Check,
-  Play,
-  Eye,
-  BookMarked,
-  Heart,
-  MessageCircle,
-  Send,
-  Loader2,
-  AlertTriangle,
-  ChevronDown,
-  ChevronUp,
-  X,
-  List,
-  Edit3,
-  Trash2,
-  MoreHorizontal,
-} from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { icerikApi, yorumApi, puanlamaApi, kutuphaneApi, listeApi } from '../../services/api';
-import type { Icerik, Yorum, YorumCreateDto, Liste } from '../../services/api';
+import { icerikApi, yorumApi, puanlamaApi, kutuphaneApi, listeApi, aktiviteApi } from '../../services/api';
+import { getDetailCache, setDetailCache, updateCachedYorumlar, updateCachedListeIds, updateCachedPuan } from '../../services/detailCache';
+import type { Icerik, IcerikListItem, Yorum, YorumCreateDto, Liste, Aktivite } from '../../services/api';
+import { ContentCard, icerikToCardData } from '../../components/ui';
+import { FeedActivityCard } from './FeedPage';
+import './DetailPage.css';
+import './FeedPage.css'; // FeedActivityCard stilleri için
 
 // ============================================
-// NEBULA UI COMPONENTS
+// HELPER FUNCTIONS
 // ============================================
 
-function GlassCard({ children, className = '' }: { children: React.ReactNode; className?: string }) {
-  return (
-    <div className={`p-5 rounded-2xl bg-[rgba(20,20,35,0.65)] backdrop-blur-xl border border-[rgba(255,255,255,0.08)] shadow-lg ${className}`}>
-      {children}
-    </div>
-  );
+function formatDuration(minutes?: number): string {
+  if (!minutes) return '';
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return hours > 0 ? `${hours}s ${mins}dk` : `${mins}dk`;
 }
 
-function GlassPanel({ children, className = '', padding = 'md' }: { children: React.ReactNode; className?: string; padding?: 'sm' | 'md' | 'lg' }) {
-  const paddings = { sm: 'p-3', md: 'p-5', lg: 'p-6' };
-  return (
-    <div className={`rounded-2xl bg-[rgba(30,30,50,0.5)] backdrop-blur-xl border border-[rgba(255,255,255,0.06)] ${paddings[padding]} ${className}`}>
-      {children}
-    </div>
-  );
+function formatNumber(num?: number): string {
+  if (!num) return '0';
+  if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+  if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+  return num.toString();
 }
 
-function Button({ 
-  children, 
-  variant = 'primary',
-  size = 'md',
-  className = '',
-  disabled = false,
-  onClick 
-}: { 
-  children: React.ReactNode; 
-  variant?: 'primary' | 'secondary' | 'ghost' | 'success' | 'danger';
-  size?: 'sm' | 'md' | 'lg' | 'icon';
-  className?: string;
-  disabled?: boolean;
-  onClick?: (e: React.MouseEvent) => void;
-}) {
-  const baseStyles = 'inline-flex items-center justify-center font-semibold rounded-xl transition-all duration-200 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed';
-  const variantStyles = {
-    primary: 'bg-gradient-to-r from-[#6C5CE7] to-[#a29bfe] text-white hover:shadow-lg hover:shadow-[#6C5CE7]/25',
-    secondary: 'bg-[rgba(255,255,255,0.08)] text-white border border-[rgba(255,255,255,0.1)] hover:bg-[rgba(255,255,255,0.12)]',
-    ghost: 'bg-transparent text-[rgba(255,255,255,0.7)] hover:text-white hover:bg-[rgba(255,255,255,0.05)]',
-    success: 'bg-[#00b894] text-white hover:bg-[#00b894]/80',
-    danger: 'bg-[#fd79a8] text-white hover:bg-[#fd79a8]/80'
-  };
-  const sizeStyles = {
-    sm: 'px-3 py-1.5 text-xs gap-1',
-    md: 'px-4 py-2 text-sm gap-2',
-    lg: 'px-6 py-3 text-base gap-2',
-    icon: 'w-10 h-10 p-0'
+// ============================================
+// STAR RATING COMPONENT (10-star)
+// ============================================
+
+interface StarRatingProps {
+  value: number;
+  onChange?: (val: number) => void;
+  readonly?: boolean;
+  size?: 'sm' | 'md' | 'lg';
+}
+
+function StarRating({ value, onChange, readonly = false }: StarRatingProps) {
+  const [hoverValue, setHoverValue] = useState(0);
+
+  const handleClick = (star: number) => {
+    if (!readonly && onChange) {
+      onChange(star);
+    }
   };
 
   return (
-    <button onClick={onClick} disabled={disabled} className={`${baseStyles} ${variantStyles[variant]} ${sizeStyles[size]} ${className}`}>
-      {children}
-    </button>
-  );
-}
-
-function StarRating({ value, onChange, size = 'md', readonly = false }: { value: number; onChange?: (val: number) => void; size?: 'sm' | 'md' | 'lg'; readonly?: boolean }) {
-  const sizes = { sm: 14, md: 20, lg: 26 };
-  const starSize = sizes[size];
-  
-  return (
-    <div className="flex items-center gap-0.5">
+    <div className="star-rating">
       {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((star) => (
         <button
           key={star}
           type="button"
-          onClick={() => !readonly && onChange?.(star)}
+          className={`star ${(hoverValue || value) >= star ? 'active' : ''}`}
+          onClick={() => handleClick(star)}
+          onMouseEnter={() => !readonly && setHoverValue(star)}
+          onMouseLeave={() => !readonly && setHoverValue(0)}
           disabled={readonly}
-          className={`transition-transform ${!readonly ? 'hover:scale-110 cursor-pointer' : 'cursor-default'}`}
         >
-          <Star
-            size={starSize}
-            className={star <= value ? 'text-[#f39c12] fill-[#f39c12]' : 'text-[rgba(255,255,255,0.2)]'}
-          />
+          <span className="material-symbols-rounded">star</span>
         </button>
       ))}
     </div>
   );
 }
 
-function RatingBadge({ rating, size = 'md' }: { rating: number; size?: 'sm' | 'md' | 'lg' }) {
-  const sizes = { sm: 'text-xs px-1.5 py-0.5', md: 'text-sm px-2 py-1', lg: 'text-base px-3 py-1.5' };
-  return (
-    <div className={`inline-flex items-center gap-1 bg-[#6C5CE7]/20 backdrop-blur-md rounded-md ${sizes[size]}`}>
-      <Star size={size === 'sm' ? 10 : size === 'md' ? 12 : 14} className="text-[#6C5CE7] fill-[#6C5CE7]" />
-      <span className="text-white font-semibold">{rating.toFixed(1)}</span>
-    </div>
-  );
-}
-
-// Genişletilebilir açıklama komponenti
-function ExpandableDescription({ text, maxLength = 300 }: { text: string; maxLength?: number }) {
-  const [expanded, setExpanded] = useState(false);
-  
-  if (!text) return null;
-  
-  const needsTruncation = text.length > maxLength;
-  const displayText = expanded || !needsTruncation ? text : `${text.substring(0, maxLength)}...`;
-  
-  return (
-    <div className="mb-6">
-      <p className="text-[#8E8E93] text-sm leading-relaxed whitespace-pre-line">
-        {displayText}
-      </p>
-      {needsTruncation && (
-        <button
-          onClick={() => setExpanded(!expanded)}
-          className="mt-2 text-[#6C5CE7] text-sm font-medium hover:text-[#a29bfe] transition-colors flex items-center gap-1"
-        >
-          {expanded ? (
-            <>
-              <ChevronUp size={16} />
-              Daha Az Göster
-            </>
-          ) : (
-            <>
-              <ChevronDown size={16} />
-              Devamını Oku
-            </>
-          )}
-        </button>
-      )}
-    </div>
-  );
-}
-
-function Textarea({ placeholder, value, onChange, rows = 4, className = '' }: { placeholder?: string; value: string; onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void; rows?: number; className?: string }) {
-  return (
-    <textarea
-      placeholder={placeholder}
-      value={value}
-      onChange={onChange}
-      rows={rows}
-      className={`w-full px-4 py-3 rounded-xl text-white text-sm bg-[rgba(255,255,255,0.05)] border border-[rgba(255,255,255,0.1)] focus:outline-none focus:ring-2 focus:ring-[#6C5CE7]/50 focus:border-transparent placeholder:text-[rgba(255,255,255,0.4)] resize-none ${className}`}
-    />
-  );
-}
-
 // ============================================
-// COMMENT COMPONENT
-// ============================================
-
-interface CommentCardProps {
-  yorum: Yorum;
-  onLike: (yorumId: number) => void;
-  onReply?: (yorumId: number) => void;
-  onEdit?: (yorumId: number, yeniIcerik: string) => void;
-  onDelete?: (yorumId: number) => void;
-  currentUserId?: string;
-}
-
-function CommentCard({ yorum, onLike, onReply, onEdit, onDelete, currentUserId }: CommentCardProps) {
-  const navigate = useNavigate();
-  const [showSpoiler, setShowSpoiler] = useState(false);
-  const [showReplies, setShowReplies] = useState(false);
-  const [showMenu, setShowMenu] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editContent, setEditContent] = useState(yorum.icerik || '');
-  const [editLoading, setEditLoading] = useState(false);
-  const [deleteLoading, setDeleteLoading] = useState(false);
-
-  const tarihStr = formatDistanceToNow(new Date(yorum.olusturulmaZamani), {
-    addSuffix: true,
-    locale: tr,
-  });
-
-  const content = yorum.icerik || yorum.icerikOzet || '';
-  const isOwner = currentUserId && yorum.kullaniciId === currentUserId;
-
-  const handleEditSave = async () => {
-    if (!editContent.trim() || !onEdit) return;
-    setEditLoading(true);
-    try {
-      await onEdit(yorum.id, editContent.trim());
-      setIsEditing(false);
-    } catch (error) {
-      console.error('Yorum güncelleme hatası:', error);
-    } finally {
-      setEditLoading(false);
-    }
-  };
-
-  const handleDelete = async () => {
-    if (!onDelete) return;
-    if (!window.confirm('Bu yorumu silmek istediğinize emin misiniz?')) return;
-    setDeleteLoading(true);
-    try {
-      await onDelete(yorum.id);
-    } catch (error) {
-      console.error('Yorum silme hatası:', error);
-    } finally {
-      setDeleteLoading(false);
-      setShowMenu(false);
-    }
-  };
-
-  return (
-    <GlassPanel padding="md" className="mb-4">
-      {/* Header */}
-      <div className="flex items-start gap-3 mb-3">
-        <div
-          className="w-10 h-10 rounded-full bg-gradient-to-br from-[#6C5CE7] to-[#00CEC9] flex items-center justify-center cursor-pointer overflow-hidden"
-          onClick={() => navigate(`/profil/${yorum.kullaniciAdi}`)}
-        >
-          {yorum.kullaniciAvatar ? (
-            <img src={yorum.kullaniciAvatar} alt={yorum.kullaniciAdi} className="w-full h-full object-cover" />
-          ) : (
-            <span className="text-white font-semibold text-sm">
-              {yorum.kullaniciAdi?.charAt(0).toUpperCase()}
-            </span>
-          )}
-        </div>
-        <div className="flex-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span
-              className="font-semibold text-white cursor-pointer hover:text-[#6C5CE7] transition-colors"
-              onClick={() => navigate(`/profil/${yorum.kullaniciAdi}`)}
-            >
-              {yorum.kullaniciAdi}
-            </span>
-            {yorum.puan && (
-              <div className="flex items-center gap-1">
-                <Star size={14} className="text-[#f39c12] fill-[#f39c12]" />
-                <span className="text-sm font-semibold text-[#f39c12]">{yorum.puan}</span>
-              </div>
-            )}
-            {yorum.spoilerIceriyor && (
-              <span className="px-2 py-0.5 rounded-full bg-[#fd79a8]/20 text-[#fd79a8] text-xs">
-                Spoiler
-              </span>
-            )}
-          </div>
-          <p className="text-xs text-[#8E8E93]">{tarihStr}</p>
-        </div>
-        
-        {/* Kendi yorumu ise düzenleme/silme menüsü */}
-        {isOwner && (onEdit || onDelete) && (
-          <div className="relative">
-            <button
-              onClick={() => setShowMenu(!showMenu)}
-              className="p-2 rounded-lg hover:bg-white/10 transition-colors text-[#8E8E93] hover:text-white"
-            >
-              <MoreHorizontal size={16} />
-            </button>
-            
-            {showMenu && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
-                <div className="absolute right-0 top-full mt-1 z-50 bg-[rgba(20,20,35,0.98)] backdrop-blur-xl border border-white/10 rounded-xl overflow-hidden shadow-xl min-w-[140px] animate-scale-in">
-                  {onEdit && (
-                    <button
-                      onClick={() => {
-                        setIsEditing(true);
-                        setShowMenu(false);
-                      }}
-                      className="w-full px-4 py-2.5 flex items-center gap-2 text-sm text-white hover:bg-white/10 transition-colors"
-                    >
-                      <Edit3 size={14} />
-                      Düzenle
-                    </button>
-                  )}
-                  {onDelete && (
-                    <button
-                      onClick={handleDelete}
-                      disabled={deleteLoading}
-                      className="w-full px-4 py-2.5 flex items-center gap-2 text-sm text-[#fd79a8] hover:bg-[#fd79a8]/10 transition-colors disabled:opacity-50"
-                    >
-                      {deleteLoading ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-                      Sil
-                    </button>
-                  )}
-                </div>
-              </>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Title */}
-      {yorum.baslik && (
-        <h4 className="font-semibold text-white mb-2">{yorum.baslik}</h4>
-      )}
-
-      {/* Content - Düzenleme modu veya normal görünüm */}
-      {isEditing ? (
-        <div className="space-y-3">
-          <Textarea
-            placeholder="Yorumunuzu düzenleyin..."
-            value={editContent}
-            onChange={(e) => setEditContent(e.target.value)}
-            rows={3}
-          />
-          <div className="flex justify-end gap-2">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => {
-                setIsEditing(false);
-                setEditContent(yorum.icerik || '');
-              }}
-            >
-              İptal
-            </Button>
-            <Button
-              size="sm"
-              onClick={handleEditSave}
-              disabled={editLoading || !editContent.trim()}
-            >
-              {editLoading ? (
-                <>
-                  <Loader2 size={14} className="animate-spin mr-1" />
-                  Kaydediliyor
-                </>
-              ) : (
-                'Kaydet'
-              )}
-            </Button>
-          </div>
-        </div>
-      ) : yorum.spoilerIceriyor && !showSpoiler ? (
-        <div
-          className="p-4 rounded-xl bg-[#fd79a8]/10 border border-[#fd79a8]/20 cursor-pointer"
-          onClick={() => setShowSpoiler(true)}
-        >
-          <div className="flex items-center gap-2 text-[#fd79a8]">
-            <AlertTriangle size={16} />
-            <span className="text-sm font-medium">Spoiler içeriyor. Görmek için tıklayın.</span>
-          </div>
-        </div>
-      ) : (
-        <p className="text-[#8E8E93] text-sm whitespace-pre-line">{content}</p>
-      )}
-
-      {/* Actions */}
-      <div className="flex items-center gap-4 mt-4 pt-3 border-t border-white/[0.08]">
-        <button
-          onClick={() => onLike(yorum.id)}
-          className={`flex items-center gap-1.5 text-sm transition-colors ${
-            yorum.kullaniciBegendiMi ? 'text-[#fd79a8]' : 'text-[#8E8E93] hover:text-[#fd79a8]'
-          }`}
-        >
-          <Heart size={16} fill={yorum.kullaniciBegendiMi ? 'currentColor' : 'none'} />
-          <span>{yorum.begeniSayisi}</span>
-        </button>
-        {onReply && (
-          <button
-            onClick={() => onReply(yorum.id)}
-            className="flex items-center gap-1.5 text-sm text-[#8E8E93] hover:text-[#6C5CE7] transition-colors"
-          >
-            <MessageCircle size={16} />
-            <span>Yanıtla</span>
-          </button>
-        )}
-      </div>
-
-      {/* Replies */}
-      {yorum.yanitlar && yorum.yanitlar.length > 0 && (
-        <div className="mt-4">
-          <button
-            onClick={() => setShowReplies(!showReplies)}
-            className="flex items-center gap-1 text-sm text-[#6C5CE7]"
-          >
-            {showReplies ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-            {yorum.yanitlar.length} yanıt
-          </button>
-          {showReplies && (
-            <div className="mt-3 pl-4 border-l-2 border-white/10">
-              {yorum.yanitlar.map((yanit) => (
-                <CommentCard 
-                  key={yanit.id} 
-                  yorum={yanit} 
-                  onLike={onLike}
-                  onEdit={onEdit}
-                  onDelete={onDelete}
-                  currentUserId={currentUserId}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </GlassPanel>
-  );
-}
-
-// ============================================
-// COMMENT FORM COMPONENT
-// ============================================
-
-interface CommentFormProps {
-  icerikId: number;
-  onSubmit: (yorum: Yorum) => void;
-  replyTo?: number;
-  onCancel?: () => void;
-}
-
-function CommentForm({ icerikId, onSubmit, replyTo, onCancel }: CommentFormProps) {
-  const { user, requireAuth } = useAuth();
-  const [content, setContent] = useState('');
-  const [rating, setRating] = useState(0);
-  const [spoiler, setSpoiler] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-
-  const handleSubmit = async () => {
-    if (!requireAuth('yorum yapmak')) return;
-    if (!content.trim()) {
-      setError('Yorum içeriği boş olamaz.');
-      return;
-    }
-
-    setLoading(true);
-    setError('');
-
-    try {
-      const dto: YorumCreateDto = {
-        icerikId,
-        icerik: content,
-        puan: rating > 0 ? rating : undefined,
-        spoilerIceriyor: spoiler,
-        ustYorumId: replyTo,
-      };
-
-      const yeniYorum = await yorumApi.create(dto);
-      onSubmit(yeniYorum);
-      setContent('');
-      setRating(0);
-      setSpoiler(false);
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Yorum kaydedilemedi.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (!user) {
-    return (
-      <GlassPanel padding="md" className="text-center">
-        <p className="text-[#8E8E93] mb-3">Yorum yapmak için giriş yapmalısınız.</p>
-        <Button onClick={() => requireAuth('yorum yapmak')}>Giriş Yap</Button>
-      </GlassPanel>
-    );
-  }
-
-  return (
-    <GlassPanel padding="md">
-      <h3 className="font-semibold text-white mb-4">
-        {replyTo ? 'Yanıt Yaz' : 'Yorum Yap'}
-      </h3>
-
-      {error && (
-        <div className="mb-4 p-3 rounded-xl bg-[rgba(255,69,58,0.15)] text-[#fd79a8] text-sm">
-          {error}
-        </div>
-      )}
-
-      <Textarea
-        placeholder="Düşüncelerinizi paylaşın..."
-        value={content}
-        onChange={(e) => setContent(e.target.value)}
-        rows={4}
-      />
-
-      {/* Rating */}
-      {!replyTo && (
-        <div className="mt-4 flex items-center gap-3">
-          <span className="text-sm text-[#8E8E93]">Puanınız:</span>
-          <StarRating value={rating} onChange={setRating} size="md" />
-          {rating > 0 && (
-            <span className="text-[#f39c12] font-semibold">{rating}/10</span>
-          )}
-        </div>
-      )}
-
-      {/* Spoiler checkbox */}
-      <label className="flex items-center gap-2 mt-4 cursor-pointer">
-        <input
-          type="checkbox"
-          checked={spoiler}
-          onChange={(e) => setSpoiler(e.target.checked)}
-          className="w-4 h-4 rounded bg-white/10 border-white/20 text-[#6C5CE7] focus:ring-[#6C5CE7]"
-        />
-        <span className="text-sm text-[#8E8E93]">Spoiler içeriyor</span>
-      </label>
-
-      {/* Actions */}
-      <div className="flex justify-end gap-2 mt-4">
-        {onCancel && (
-          <Button variant="secondary" onClick={onCancel}>
-            İptal
-          </Button>
-        )}
-        <Button onClick={handleSubmit} disabled={loading || !content.trim()}>
-          {loading ? (
-            <>
-              <Loader2 size={16} className="animate-spin mr-2" />
-              Gönderiliyor...
-            </>
-          ) : (
-            <>
-              <Send size={16} className="mr-2" />
-              Gönder
-            </>
-          )}
-        </Button>
-      </div>
-    </GlassPanel>
-  );
-}
-
-// ============================================
-// LIBRARY STATUS DROPDOWN
-// ============================================
-
-interface LibraryDropdownProps {
-  icerikTur: string;
-  currentStatus?: string;
-  onChange: (status: string) => void;
-  onRemove?: () => void;
-  loading?: boolean;
-}
-
-function LibraryDropdown({ icerikTur, currentStatus, onChange, onRemove, loading }: LibraryDropdownProps) {
-  const [open, setOpen] = useState(false);
-
-  // Backend enum değerleri: izlendi, izlenecek, okundu, okunacak, devam_ediyor
-  const filmStatuses = [
-    { value: 'devam_ediyor', label: 'İzleniyor', icon: <Play size={16} /> },
-    { value: 'izlendi', label: 'İzlendi', icon: <Check size={16} /> },
-    { value: 'izlenecek', label: 'İzlenecek', icon: <Eye size={16} /> },
-  ];
-
-  const kitapStatuses = [
-    { value: 'devam_ediyor', label: 'Okunuyor', icon: <BookOpen size={16} /> },
-    { value: 'okundu', label: 'Okundu', icon: <Check size={16} /> },
-    { value: 'okunacak', label: 'Okunacak', icon: <BookMarked size={16} /> },
-  ];
-
-  const statuses = icerikTur === 'film' ? filmStatuses : kitapStatuses;
-  const currentLabel = statuses.find((s) => s.value === currentStatus)?.label || 'Kütüphaneye Ekle';
-
-  return (
-    <div className="relative">
-      <Button
-        variant={currentStatus ? 'success' : 'primary'}
-        onClick={() => setOpen(!open)}
-        disabled={loading}
-      >
-        {loading ? (
-          <Loader2 size={16} className="animate-spin mr-2" />
-        ) : currentStatus ? (
-          <Check size={16} className="mr-2" />
-        ) : (
-          <Plus size={16} className="mr-2" />
-        )}
-        {currentLabel}
-        <ChevronDown size={16} className="ml-2" />
-      </Button>
-
-      {open && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute top-full left-0 mt-2 w-48 z-50 glass-panel p-2 animate-scale-in">
-            {statuses.map((status) => (
-              <button
-                key={status.value}
-                onClick={() => {
-                  onChange(status.value);
-                  setOpen(false);
-                }}
-                className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-left transition-colors ${
-                  currentStatus === status.value
-                    ? 'bg-[#6C5CE7]/20 text-[#6C5CE7]'
-                    : 'text-white hover:bg-white/10'
-                }`}
-              >
-                {status.icon}
-                {status.label}
-              </button>
-            ))}
-            
-            {/* Kütüphaneden Kaldır */}
-            {currentStatus && onRemove && (
-              <>
-                <div className="border-t border-white/10 my-2" />
-                <button
-                  onClick={() => {
-                    onRemove();
-                    setOpen(false);
-                  }}
-                  className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-left text-[#fd79a8] hover:bg-[#fd79a8]/10 transition-colors"
-                >
-                  <X size={16} />
-                  Kütüphaneden Kaldır
-                </button>
-              </>
-            )}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-// ============================================
-// LISTE DROPDOWN
-// ============================================
-
-interface ListeDropdownProps {
-  icerikId: number;
-}
-
-function ListeDropdown({ icerikId }: ListeDropdownProps) {
-  const { user, requireAuth } = useAuth();
-  const [open, setOpen] = useState(false);
-  const [listeler, setListeler] = useState<Liste[]>([]);
-  const [icerikListeleri, setIcerikListeleri] = useState<number[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [actionLoading, setActionLoading] = useState<number | null>(null);
-
-  // Kullanıcının listelerini yükle
-  useEffect(() => {
-    const loadListeler = async () => {
-      if (!user || !open) return;
-      setLoading(true);
-      try {
-        const [userListeler, icerikListeler] = await Promise.all([
-          listeApi.getMyListeler(),
-          listeApi.getIcerikListeleri(icerikId),
-        ]);
-        setListeler(userListeler);
-        setIcerikListeleri(icerikListeler.map((l: Liste) => l.id));
-      } catch (err) {
-        console.error('Liste yükleme hatası:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadListeler();
-  }, [user, open, icerikId]);
-
-  const handleToggleListe = async (listeId: number) => {
-    if (!requireAuth('listeye eklemek')) return;
-
-    setActionLoading(listeId);
-    try {
-      if (icerikListeleri.includes(listeId)) {
-        await listeApi.removeIcerik(listeId, icerikId);
-        setIcerikListeleri((prev) => prev.filter((id) => id !== listeId));
-      } else {
-        await listeApi.addIcerik(listeId, icerikId);
-        setIcerikListeleri((prev) => [...prev, listeId]);
-      }
-    } catch (err) {
-      console.error('Liste güncelleme hatası:', err);
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  const listedeVar = icerikListeleri.length > 0;
-
-  return (
-    <div className="relative">
-      <Button
-        variant={listedeVar ? 'secondary' : 'ghost'}
-        onClick={() => {
-          if (!user) {
-            requireAuth('listeye eklemek');
-            return;
-          }
-          setOpen(!open);
-        }}
-      >
-        <List size={16} className="mr-2" />
-        {listedeVar ? `${icerikListeleri.length} listede` : 'Listeye Ekle'}
-        <ChevronDown size={16} className="ml-2" />
-      </Button>
-
-      {open && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute top-full left-0 mt-2 w-56 z-50 glass-panel p-2 animate-scale-in max-h-64 overflow-y-auto">
-            {loading ? (
-              <div className="flex items-center justify-center py-4">
-                <Loader2 size={20} className="animate-spin text-[#8E8E93]" />
-              </div>
-            ) : listeler.length === 0 ? (
-              <div className="text-center py-4">
-                <p className="text-sm text-[#8E8E93] mb-2">Henüz listeniz yok</p>
-                <p className="text-xs text-[#8E8E93]">Profil sayfasından liste oluşturabilirsiniz</p>
-              </div>
-            ) : (
-              listeler.map((liste) => {
-                const isInList = icerikListeleri.includes(liste.id);
-                const isLoading = actionLoading === liste.id;
-                return (
-                  <button
-                    key={liste.id}
-                    onClick={() => handleToggleListe(liste.id)}
-                    disabled={isLoading}
-                    className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-sm text-left transition-colors ${
-                      isInList
-                        ? 'bg-[#00b894]/20 text-[#00b894]'
-                        : 'text-white hover:bg-white/10'
-                    }`}
-                  >
-                    <span className="truncate">{liste.ad}</span>
-                    {isLoading ? (
-                      <Loader2 size={14} className="animate-spin flex-shrink-0" />
-                    ) : isInList ? (
-                      <Check size={14} className="flex-shrink-0" />
-                    ) : (
-                      <Plus size={14} className="flex-shrink-0 opacity-50" />
-                    )}
-                  </button>
-                );
-              })
-            )}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-// ============================================
-// MAIN DETAIL PAGE
+// MAIN DETAIL PAGE COMPONENT
 // ============================================
 
 export default function DetailPage() {
   const { id } = useParams<{ tip: string; id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, requireAuth } = useAuth();
 
-  // States
+  // Content state
   const [icerik, setIcerik] = useState<Icerik | null>(null);
-  const [yorumlar, setYorumlar] = useState<Yorum[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // User states
+  // User interaction states
   const [kullaniciPuani, setKullaniciPuani] = useState(0);
   const [kutuphaneDurumu, setKutuphaneDurumu] = useState<string | undefined>();
   const [savingRating, setSavingRating] = useState(false);
   const [savingLibrary, setSavingLibrary] = useState(false);
 
-  // Load content
+  // Comment states
+  const [yorumlar, setYorumlar] = useState<Yorum[]>([]);
+  const [yorumText, setYorumText] = useState('');
+  const [yorumPuan, setYorumPuan] = useState(0);
+  const [spoilerIceriyor, setSpoilerIceriyor] = useState(false);
+  const [yorumLoading, setYorumLoading] = useState(false);
+  const [showAllComments, setShowAllComments] = useState(false);
+  const [expandedComments, setExpandedComments] = useState<Set<number>>(new Set());
+  const [revealedSpoilers, setRevealedSpoilers] = useState<Set<number>>(new Set());
+  const [replyingTo, setReplyingTo] = useState<Yorum | null>(null);
+
+  // Tab states
+  const [activeTab, setActiveTab] = useState<'yorumlar' | 'listeler' | 'aktiviteler'>('yorumlar');
+  const [listeler, setListeler] = useState<Liste[]>([]);
+  const [aktiviteler, setAktiviteler] = useState<Aktivite[]>([]);
+
+  // Sidebar states
+  const [similarContent, setSimilarContent] = useState<IcerikListItem[]>([]);
+
+  // Liste dropdown state
+  const [listeDropdownOpen, setListeDropdownOpen] = useState(false);
+  const [kullaniciListeleri, setKullaniciListeleri] = useState<Liste[]>([]);
+  const [icerikListeIds, setIcerikListeIds] = useState<number[]>([]);
+  const [listeLoading, setListeLoading] = useState(false);
+
+  // UI states
+  const [overviewExpanded, setOverviewExpanded] = useState(false);
+
+  // Library dropdown state
+  const [libraryDropdownOpen, setLibraryDropdownOpen] = useState(false);
+
+  // Lazy loading ref - çift yüklemeyi önle
+  const isDataLoadedRef = useRef(false);
+  const currentIdRef = useRef<string | undefined>(undefined);
+
+  // Sayfa açılışında en üste scroll et
   useEffect(() => {
-    const loadContent = async () => {
-      if (!id) return;
+    window.scrollTo(0, 0);
+  }, [id]); // id değişince (yeni içerik) tekrar scroll et
 
-      setLoading(true);
-      setError(null);
+  // Load content with cache
+  const loadContent = useCallback(async (forceRefresh = false) => {
+    if (!id) return;
 
-      try {
-        const icerikId = parseInt(id);
-        const [icerikData, yorumlarData] = await Promise.all([
-          icerikApi.getById(icerikId),
-          yorumApi.getIcerikYorumlari(icerikId, { sayfaBoyutu: 20 }),
-        ]);
+    const icerikId = parseInt(id);
 
-        setIcerik(icerikData);
-        setYorumlar(yorumlarData.data);
+    // Cache kontrolü
+    if (!forceRefresh) {
+      const cached = getDetailCache(icerikId);
+      if (cached) {
+        // Cache'den yükle
+        setIcerik(cached.icerik);
+        setYorumlar(cached.yorumlar);
+        setListeler(cached.listeler);
+        setSimilarContent(cached.similarContent);
+        setAktiviteler(cached.aktiviteler);
+        setKullaniciListeleri(cached.kullaniciListeleri);
+        setIcerikListeIds(cached.icerikListeIds);
 
-        // Kullanıcı durumları
-        if (icerikData.kullaniciPuani) {
-          setKullaniciPuani(icerikData.kullaniciPuani);
+        if (cached.icerik.kullaniciPuani) {
+          setKullaniciPuani(cached.icerik.kullaniciPuani);
         }
-        if (icerikData.kullanicininDurumu) {
-          setKutuphaneDurumu(icerikData.kullanicininDurumu);
+        if (cached.icerik.kullanicininDurumu) {
+          setKutuphaneDurumu(cached.icerik.kullanicininDurumu);
         }
-      } catch (err: any) {
-        console.error('İçerik yükleme hatası:', err);
-        setError(err.response?.data?.message || 'İçerik yüklenirken bir hata oluştu.');
-      } finally {
+
         setLoading(false);
+        return;
       }
-    };
+    }
 
-    loadContent();
+    setLoading(true);
+    setError(null);
+
+    try {
+      const [icerikData, yorumlarData] = await Promise.all([
+        icerikApi.getById(icerikId),
+        yorumApi.getIcerikYorumlari(icerikId, { sayfaBoyutu: 20 }),
+      ]);
+
+      console.log('İçerik detayları:', icerikData);
+      setIcerik(icerikData);
+      setYorumlar(yorumlarData.data);
+
+      // User states
+      if (icerikData.kullaniciPuani) {
+        setKullaniciPuani(icerikData.kullaniciPuani);
+      }
+      if (icerikData.kullanicininDurumu) {
+        setKutuphaneDurumu(icerikData.kullanicininDurumu);
+      }
+
+      // Parallel yükleme için değişkenler
+      let listsData: Liste[] = [];
+      let listIdsList: number[] = [];
+      let similarData: IcerikListItem[] = [];
+      let userLists: Liste[] = [];
+      let contentActivities: Aktivite[] = [];
+
+      // Paralel olarak diğer verileri yükle
+      const [listsResult, similarResult, userListsResult, feedResult] = await Promise.allSettled([
+        listeApi.getIcerikListeleri(icerikId),
+        icerikApi.getSimilar(icerikId, icerikData.tur, 6),
+        listeApi.getMyListeler(),
+        aktiviteApi.getGenelFeed({ limit: 50 }),
+      ]);
+
+      if (listsResult.status === 'fulfilled') {
+        listsData = listsResult.value;
+        listIdsList = listsData.map((l: Liste) => l.id);
+        setListeler(listsData);
+        setIcerikListeIds(listIdsList);
+      }
+
+      if (similarResult.status === 'fulfilled') {
+        similarData = similarResult.value;
+        setSimilarContent(similarData);
+      }
+
+      if (userListsResult.status === 'fulfilled') {
+        userLists = userListsResult.value;
+        setKullaniciListeleri(userLists);
+      }
+
+      if (feedResult.status === 'fulfilled') {
+        contentActivities = feedResult.value.data
+          .filter((a: Aktivite) => a.icerikId === icerikId)
+          .slice(0, 10);
+        setAktiviteler(contentActivities);
+      }
+
+      // Cache'e kaydet
+      setDetailCache(icerikId, {
+        icerik: icerikData,
+        yorumlar: yorumlarData.data,
+        listeler: listsData,
+        similarContent: similarData,
+        aktiviteler: contentActivities,
+        kullaniciListeleri: userLists,
+        icerikListeIds: listIdsList,
+      });
+
+    } catch (err: unknown) {
+      console.error('İçerik yükleme hatası:', err);
+      const errorMessage = err instanceof Error ? err.message : 'İçerik yüklenirken bir hata oluştu.';
+      setError(errorMessage);
+    } finally {
+      setLoading(false);
+    }
   }, [id]);
 
-  // Puanlama kaydet
+  // İlk yükleme
+  useEffect(() => {
+    if (id && id !== currentIdRef.current) {
+      currentIdRef.current = id;
+      isDataLoadedRef.current = false;
+    }
+
+    if (!isDataLoadedRef.current && id) {
+      isDataLoadedRef.current = true;
+      loadContent();
+    }
+  }, [id, loadContent]);
+
+  // URL hash'e göre yoruma scroll et
+  useEffect(() => {
+    if (!loading && yorumlar.length > 0) {
+      const hash = location.hash;
+      if (hash && hash.startsWith('#yorum-')) {
+        // Yorumlar tab'ına geç
+        setActiveTab('yorumlar');
+        
+        // Kısa bir gecikme ile scroll yap (DOM render için)
+        setTimeout(() => {
+          const elementId = hash.substring(1); // # işaretini kaldır
+          const element = document.getElementById(elementId);
+          if (element) {
+            element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            // Vurgulama efekti
+            element.classList.add('highlight-comment');
+            setTimeout(() => {
+              element.classList.remove('highlight-comment');
+            }, 3000);
+          }
+        }, 300);
+      }
+    }
+  }, [loading, yorumlar, location.hash]);
+
+  // Handle rating
   const handleRating = async (puan: number) => {
     if (!requireAuth('puanlamak')) return;
     if (!icerik) return;
@@ -823,6 +287,28 @@ export default function DetailPage() {
     try {
       await puanlamaApi.puanla({ icerikId: icerik.id, puan });
       setKullaniciPuani(puan);
+      try {
+        const refreshed = await icerikApi.getById(icerik.id);
+        setIcerik(refreshed);
+        // Cache'i güncelle
+        updateCachedPuan(icerik.id, refreshed);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('saga-rating-updated', {
+            detail: {
+              icerikId: refreshed.id,
+              saga: refreshed.ortalamaPuan ?? null,
+              harici: refreshed.hariciPuan ?? null,
+            },
+          }));
+        }
+      } catch (refreshError) {
+        console.error('Puan güncellenirken içerik yenileme hatası:', refreshError);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('saga-rating-updated', {
+            detail: { icerikId: icerik.id },
+          }));
+        }
+      }
     } catch (err) {
       console.error('Puanlama hatası:', err);
     } finally {
@@ -830,15 +316,22 @@ export default function DetailPage() {
     }
   };
 
-  // Kütüphane durumu güncelle
+  // Handle library status change
   const handleLibraryChange = async (durum: string) => {
     if (!requireAuth('kütüphaneye eklemek')) return;
     if (!icerik) return;
 
     setSavingLibrary(true);
     try {
-      await kutuphaneApi.durumGuncelle(icerik.id, durum);
-      setKutuphaneDurumu(durum);
+      if (durum === 'kaldir') {
+        // Kütüphaneden çıkar
+        await kutuphaneApi.kaldir(icerik.id);
+        setKutuphaneDurumu(undefined);
+      } else {
+        await kutuphaneApi.durumGuncelle(icerik.id, durum);
+        setKutuphaneDurumu(durum);
+      }
+      setLibraryDropdownOpen(false);
     } catch (err) {
       console.error('Kütüphane hatası:', err);
     } finally {
@@ -846,359 +339,1425 @@ export default function DetailPage() {
     }
   };
 
-  // Kütüphaneden kaldır
-  const handleLibraryRemove = async () => {
-    if (!requireAuth('kütüphaneden kaldırmak')) return;
+  // Handle liste toggle
+  const handleListeToggle = async (listeId: number) => {
+    if (!requireAuth('listeye eklemek')) return;
     if (!icerik) return;
 
-    setSavingLibrary(true);
+    setListeLoading(true);
     try {
-      await kutuphaneApi.kaldir(icerik.id);
-      setKutuphaneDurumu(undefined);
+      let newListeIds: number[];
+      if (icerikListeIds.includes(listeId)) {
+        await listeApi.removeIcerik(listeId, icerik.id);
+        newListeIds = icerikListeIds.filter((id) => id !== listeId);
+      } else {
+        await listeApi.addIcerik(listeId, icerik.id);
+        newListeIds = [...icerikListeIds, listeId];
+      }
+      setIcerikListeIds(newListeIds);
+      // Cache'i güncelle
+      updateCachedListeIds(icerik.id, newListeIds);
     } catch (err) {
-      console.error('Kütüphane kaldırma hatası:', err);
+      console.error('Liste güncelleme hatası:', err);
     } finally {
-      setSavingLibrary(false);
+      setListeLoading(false);
     }
   };
 
-  // Yorum beğeni
+  // Handle comment submit
+  const handleCommentSubmit = async () => {
+    if (!requireAuth('yorum yapmak')) return;
+    if (!icerik || !yorumText.trim()) return;
+
+    setYorumLoading(true);
+    try {
+      // Yanıtın yanıtı ise ana yoruma bağla
+      const ustYorumId = replyingTo?.ustYorumId || replyingTo?.id;
+      
+      const dto: YorumCreateDto = {
+        icerikId: icerik.id,
+        icerik: yorumText,
+        puan: !replyingTo && yorumPuan > 0 ? yorumPuan : undefined, // Yanıtlarda puan yok
+        spoilerIceriyor,
+        ustYorumId: ustYorumId, // Yanıt ise üst yorum ID'si (her zaman ana yorum)
+      };
+
+      const yeniYorum = await yorumApi.create(dto);
+      
+      if (replyingTo) {
+        // Ana yorumun ID'sini bul
+        const anaYorumId = replyingTo.ustYorumId || replyingTo.id;
+        
+        // Yanıtı ana yorumun yanıtlar listesine ekle
+        const updatedYorumlar = yorumlar.map((y) =>
+          y.id === anaYorumId
+            ? { ...y, yanitlar: [...(y.yanitlar || []), yeniYorum] }
+            : y
+        );
+        setYorumlar(updatedYorumlar);
+        updateCachedYorumlar(icerik.id, updatedYorumlar);
+        setReplyingTo(null);
+      } else {
+        // Normal yorum ise başa ekle
+        const updatedYorumlar = [yeniYorum, ...yorumlar];
+        setYorumlar(updatedYorumlar);
+        updateCachedYorumlar(icerik.id, updatedYorumlar);
+      }
+      
+      setYorumText('');
+      setYorumPuan(0);
+      setSpoilerIceriyor(false);
+    } catch (err: unknown) {
+      console.error('Yorum hatası:', err);
+    } finally {
+      setYorumLoading(false);
+    }
+  };
+
+  // Handle reply button click
+  const handleReplyClick = (yorum: Yorum) => {
+    if (!requireAuth('yanıtlamak')) return;
+    setReplyingTo(yorum);
+    // Yorum formuna scroll
+    document.getElementById('yorum-form')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
+  // Cancel reply
+  const cancelReply = () => {
+    setReplyingTo(null);
+  };
+
+  // Handle comment like (ana yorumlar ve yanıtlar için)
   const handleLikeComment = async (yorumId: number) => {
     if (!requireAuth('beğenmek')) return;
 
     try {
       const result = await yorumApi.toggleBegeni(yorumId);
       setYorumlar((prev) =>
-        prev.map((y) =>
-          y.id === yorumId
-            ? { ...y, kullaniciBegendiMi: result.begendi, begeniSayisi: result.begeniSayisi }
-            : y
-        )
+        prev.map((y) => {
+          // Ana yorum mu kontrol et
+          if (y.id === yorumId) {
+            return { ...y, kullaniciBegendiMi: result.begendi, begeniSayisi: result.begeniSayisi };
+          }
+          // Yanıtlarda mı kontrol et
+          if (y.yanitlar && y.yanitlar.length > 0) {
+            const updatedYanitlar = y.yanitlar.map((yanit) =>
+              yanit.id === yorumId
+                ? { ...yanit, kullaniciBegendiMi: result.begendi, begeniSayisi: result.begeniSayisi }
+                : yanit
+            );
+            return { ...y, yanitlar: updatedYanitlar };
+          }
+          return y;
+        })
       );
     } catch (err) {
       console.error('Beğeni hatası:', err);
     }
   };
 
-  // Yorum düzenleme
-  const handleEditComment = async (yorumId: number, yeniIcerik: string) => {
-    try {
-      await yorumApi.update(yorumId, { icerik: yeniIcerik });
-      setYorumlar((prev) =>
-        prev.map((y) =>
-          y.id === yorumId ? { ...y, icerik: yeniIcerik } : y
-        )
-      );
-    } catch (err) {
-      console.error('Yorum güncelleme hatası:', err);
-      throw err;
-    }
-  };
-
-  // Yorum silme
+  // Handle comment delete
   const handleDeleteComment = async (yorumId: number) => {
+    if (!window.confirm('Bu yorumu silmek istediğinize emin misiniz?')) return;
+    if (!icerik) return;
+
     try {
       await yorumApi.delete(yorumId);
-      setYorumlar((prev) => prev.filter((y) => y.id !== yorumId));
+      const updatedYorumlar = yorumlar.filter((y) => y.id !== yorumId);
+      setYorumlar(updatedYorumlar);
+      updateCachedYorumlar(icerik.id, updatedYorumlar);
     } catch (err) {
       console.error('Yorum silme hatası:', err);
-      throw err;
     }
   };
 
-  // Yeni yorum ekle
-  const handleNewComment = (yorum: Yorum) => {
-    setYorumlar((prev) => [yorum, ...prev]);
-  };
-
+  // Loading state
   if (loading) {
     return (
-      <div className="max-w-4xl mx-auto">
-        <div className="flex items-center gap-4 mb-8">
-          <div className="w-8 h-8 skeleton rounded-full" />
-          <div className="h-6 w-32 skeleton rounded" />
-        </div>
-        <div className="flex gap-8">
-          <div className="w-[280px] aspect-[2/3] skeleton rounded-2xl" />
-          <div className="flex-1">
-            <div className="h-8 w-3/4 skeleton rounded mb-4" />
-            <div className="h-4 w-full skeleton rounded mb-2" />
-            <div className="h-4 w-full skeleton rounded mb-2" />
-            <div className="h-4 w-2/3 skeleton rounded" />
+      <div className="detail-page">
+        <div className="detail-skeleton">
+          {/* Hero Skeleton */}
+          <div className="skeleton-hero">
+            <div className="skeleton-hero-gradient"></div>
+          </div>
+          
+          {/* Main Content Skeleton */}
+          <div className="detail-main-content">
+            <div className="detail-content-grid">
+              {/* Poster Column */}
+              <div className="poster-column">
+                <div className="skeleton-poster skeleton-shimmer"></div>
+                <div className="skeleton-actions">
+                  <div className="skeleton-btn skeleton-shimmer"></div>
+                  <div className="skeleton-btn skeleton-shimmer"></div>
+                </div>
+              </div>
+              
+              {/* Info Column */}
+              <div className="info-column">
+                <div className="skeleton-badge skeleton-shimmer"></div>
+                <div className="skeleton-title skeleton-shimmer"></div>
+                <div className="skeleton-meta">
+                  <div className="skeleton-meta-item skeleton-shimmer"></div>
+                  <div className="skeleton-meta-item skeleton-shimmer"></div>
+                  <div className="skeleton-meta-item skeleton-shimmer"></div>
+                </div>
+                <div className="skeleton-overview">
+                  <div className="skeleton-text skeleton-shimmer"></div>
+                  <div className="skeleton-text skeleton-shimmer" style={{ width: '90%' }}></div>
+                  <div className="skeleton-text skeleton-shimmer" style={{ width: '75%' }}></div>
+                </div>
+                <div className="skeleton-rating-box skeleton-shimmer"></div>
+              </div>
+            </div>
+            
+            {/* Tabs Skeleton */}
+            <div className="skeleton-tabs">
+              <div className="skeleton-tab skeleton-shimmer"></div>
+              <div className="skeleton-tab skeleton-shimmer"></div>
+              <div className="skeleton-tab skeleton-shimmer"></div>
+            </div>
+            
+            {/* Content Skeleton */}
+            <div className="skeleton-content-area">
+              <div className="skeleton-section-title skeleton-shimmer"></div>
+              <div className="skeleton-cards-row">
+                {[1, 2, 3, 4].map((i) => (
+                  <div key={i} className="skeleton-card">
+                    <div className="skeleton-card-poster skeleton-shimmer"></div>
+                    <div className="skeleton-card-title skeleton-shimmer"></div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       </div>
     );
   }
 
+  // Error state
   if (error || !icerik) {
     return (
-      <div className="max-w-4xl mx-auto">
-        <GlassCard className="text-center py-12">
-          <AlertTriangle size={48} className="mx-auto mb-4 text-[#fd79a8]" />
-          <h2 className="text-xl font-semibold text-white mb-2">İçerik Bulunamadı</h2>
-          <p className="text-[#8E8E93] mb-6">{error || 'Aradığınız içerik mevcut değil.'}</p>
-          <Button onClick={() => navigate(-1)}>
-            <ArrowLeft size={16} className="mr-2" />
+      <div className="detail-main-content" style={{ paddingTop: '150px' }}>
+        <div className="sidebar-card" style={{ textAlign: 'center', maxWidth: '500px', margin: '0 auto' }}>
+          <span className="material-symbols-rounded" style={{ fontSize: '48px', color: 'var(--error)', marginBottom: '16px' }}>
+            error
+          </span>
+          <h2 style={{ marginBottom: '8px' }}>İçerik Bulunamadı</h2>
+          <p style={{ color: 'var(--text-muted)', marginBottom: '24px' }}>
+            {error || 'Aradığınız içerik mevcut değil.'}
+          </p>
+          <button className="action-btn-large primary" onClick={() => navigate(-1)}>
+            <span className="material-symbols-rounded">arrow_back</span>
             Geri Dön
-          </Button>
-        </GlassCard>
+          </button>
+        </div>
       </div>
     );
   }
 
   const yil = icerik.yayinTarihi?.split('-')[0];
+  const backdropUrl = icerik.posterUrl?.replace('/w500/', '/original/') || icerik.posterUrl;
+
+  // Library status options
+  const getLibraryStatuses = () => {
+    if (icerik.tur === 'Film' || icerik.tur === 'Dizi') {
+      return [
+        { value: 'devam_ediyor', label: 'İzleniyor', icon: 'play_arrow' },
+        { value: 'izlendi', label: 'İzlendi', icon: 'check' },
+        { value: 'izlenecek', label: 'İzlenecek', icon: 'visibility' },
+        { value: 'kaldir', label: 'Kütüphaneden Çıkar', icon: 'delete', isDanger: true },
+      ];
+    }
+    return [
+      { value: 'devam_ediyor', label: 'Okunuyor', icon: 'auto_stories' },
+      { value: 'okundu', label: 'Okundu', icon: 'check' },
+      { value: 'okunacak', label: 'Okunacak', icon: 'bookmark' },
+      { value: 'kaldir', label: 'Kütüphaneden Çıkar', icon: 'delete', isDanger: true },
+    ];
+  };
+
+  const libraryStatuses = getLibraryStatuses();
+  const currentLibraryLabel = libraryStatuses.find((s) => s.value === kutuphaneDurumu)?.label || 'Kütüphaneye Ekle';
 
   return (
-    <div className="max-w-4xl mx-auto">
-      {/* Back Button */}
-      <button
-        onClick={() => navigate(-1)}
-        className="flex items-center gap-2 text-[#8E8E93] hover:text-white transition-colors mb-6"
-      >
-        <ArrowLeft size={20} />
-        <span>Geri</span>
-      </button>
-
+    <div className="detail-page-wrapper">
       {/* Hero Section */}
-      <div className="flex flex-col md:flex-row gap-8 mb-8">
-        {/* Poster */}
-        <div className="w-full md:w-[280px] flex-shrink-0">
-          <div className="aspect-[2/3] rounded-2xl overflow-hidden bg-white/5 shadow-poster">
-            {icerik.posterUrl ? (
-              <img
-                src={icerik.posterUrl}
-                alt={icerik.baslik}
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center">
-                {icerik.tur === 'film' ? (
-                  <Film size={64} className="text-[#8E8E93]" />
-                ) : (
-                  <BookOpen size={64} className="text-[#8E8E93]" />
-                )}
-              </div>
-            )}
-          </div>
+      <section className="detail-hero">
+        <div 
+          className="hero-backdrop" 
+          style={{ backgroundImage: `url(${backdropUrl})` }}
+        ></div>
+        <div className="hero-overlay"></div>
+        
+        {/* Mobile Content Type Badge */}
+        <div className="hero-content-badge">
+          <span className="material-symbols-rounded">
+            {icerik.tur === 'Film' ? 'movie' : icerik.tur === 'Dizi' ? 'tv' : 'menu_book'}
+          </span>
+          {icerik.tur === 'Film' ? 'FİLM' : icerik.tur === 'Dizi' ? 'DİZİ' : 'KİTAP'}
         </div>
+        
+        {/* Trailer Button - Only for films and TV shows */}
+        {(icerik.tur === 'Film' || icerik.tur === 'Dizi') && (
+          <>
+            <button className="trailer-btn" title="Fragmanı İzle">
+              <span className="material-symbols-rounded">play_arrow</span>
+            </button>
+            <span className="trailer-text">Fragmanı İzle</span>
+          </>
+        )}
+      </section>
 
-        {/* Info */}
-        <div className="flex-1">
-          {/* Type Badge */}
-          <div className="flex items-center gap-2 mb-3">
-            {icerik.tur === 'film' ? (
-              <Film size={16} className="text-[#6C5CE7]" />
-            ) : (
-              <BookOpen size={16} className="text-[#00CEC9]" />
-            )}
-            <span className="text-sm text-[#8E8E93] capitalize">{icerik.tur}</span>
-            {yil && <span className="text-sm text-[#8E8E93]">• {yil}</span>}
-          </div>
-
-          {/* Title */}
-          <h1 className="text-3xl font-bold text-white mb-4">{icerik.baslik}</h1>
-
-          {/* Ratings */}
-          <div className="flex items-center gap-6 mb-6">
-            {icerik.ortalamaPuan > 0 && (
-              <div>
-                <p className="text-xs text-[#8E8E93] mb-1">Platform Puanı</p>
-                <RatingBadge rating={icerik.ortalamaPuan} size="lg" />
-              </div>
-            )}
-            <div>
-              <p className="text-xs text-[#8E8E93] mb-1">
-                {icerik.puanlamaSayisi} değerlendirme • {icerik.yorumSayisi} yorum
-              </p>
+      {/* Main Content */}
+      <main className="detail-main-content">
+        <div className="detail-content-grid">
+          {/* LEFT COLUMN - Poster & Actions */}
+          <aside className="poster-column">
+            <div className="poster-wrapper">
+              {icerik.posterUrl ? (
+                <img src={icerik.posterUrl} alt={icerik.baslik} />
+              ) : (
+                <div style={{ 
+                  width: '100%', 
+                  aspectRatio: '2/3', 
+                  background: 'var(--void-surface)', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center' 
+                }}>
+                  <span className="material-symbols-rounded" style={{ fontSize: '64px', color: 'var(--text-muted)' }}>
+                    {icerik.tur === 'Film' ? 'movie' : icerik.tur === 'Dizi' ? 'tv' : 'menu_book'}
+                  </span>
+                </div>
+              )}
+              {icerik.hariciPuan && icerik.hariciPuan >= 8 && (
+                <div className="poster-badge">
+                  <span className="material-symbols-rounded">workspace_premium</span>
+                  TOP RATED
+                </div>
+              )}
             </div>
-          </div>
 
-          {/* Meta Info (Türler, Süre, Yazarlar vs.) */}
-          <div className="flex flex-wrap gap-4 mb-4 text-sm">
-            {/* Yönetmen */}
-            {icerik.yonetmen && (
-              <div>
-                <span className="text-[#8E8E93]">Yönetmen: </span>
-                <span className="text-white">{icerik.yonetmen}</span>
-              </div>
-            )}
-            {/* Türler */}
-            {icerik.turler && icerik.turler.length > 0 && (
-              <div>
-                <span className="text-[#8E8E93]">Tür: </span>
-                <span className="text-white">{icerik.turler.join(', ')}</span>
-              </div>
-            )}
-            {/* Süre (Film) */}
-            {icerik.sure && icerik.sure > 0 && (
-              <div>
-                <span className="text-[#8E8E93]">Süre: </span>
-                <span className="text-white">{icerik.sure} dk</span>
-              </div>
-            )}
-            {/* Sezon/Bölüm (Dizi) */}
-            {icerik.sezonSayisi && icerik.sezonSayisi > 0 && (
-              <div>
-                <span className="text-[#8E8E93]">Sezon: </span>
-                <span className="text-white">{icerik.sezonSayisi}</span>
-                {icerik.bolumSayisi && icerik.bolumSayisi > 0 && (
-                  <span className="text-white"> • {icerik.bolumSayisi} bölüm</span>
+            {/* Action Buttons */}
+            <div className="poster-actions">
+              {/* Library Dropdown */}
+              <div style={{ flex: 1, position: 'relative' }}>
+                <button 
+                  className={`action-btn-large ${kutuphaneDurumu ? 'primary' : 'secondary'}`}
+                  style={{ width: '100%' }}
+                  onClick={() => setLibraryDropdownOpen(!libraryDropdownOpen)}
+                  disabled={savingLibrary}
+                >
+                  <span className="material-symbols-rounded">
+                    {kutuphaneDurumu ? 'check' : 'add'}
+                  </span>
+                  {currentLibraryLabel}
+                </button>
+                
+                {libraryDropdownOpen && (
+                  <>
+                    <div 
+                      style={{ position: 'fixed', inset: 0, zIndex: 40 }} 
+                      onClick={() => setLibraryDropdownOpen(false)} 
+                    />
+                    <div className="sidebar-card" style={{ 
+                      position: 'absolute', 
+                      top: '100%', 
+                      left: 0, 
+                      right: 0, 
+                      marginTop: '8px', 
+                      padding: '8px',
+                      zIndex: 50 
+                    }}>
+                      {libraryStatuses
+                        .filter(status => status.value !== 'kaldir' || kutuphaneDurumu)
+                        .map((status) => (
+                        <button
+                          key={status.value}
+                          onClick={() => handleLibraryChange(status.value)}
+                          style={{
+                            width: '100%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            padding: '12px',
+                            background: kutuphaneDurumu === status.value ? 'rgba(212, 168, 83, 0.15)' : 'transparent',
+                            border: 'none',
+                            borderRadius: '8px',
+                            color: status.isDanger ? '#ef4444' : (kutuphaneDurumu === status.value ? 'var(--gold-primary)' : 'var(--text-primary)'),
+                            cursor: 'pointer',
+                            fontSize: '14px',
+                            textAlign: 'left',
+                          }}
+                        >
+                          <span className="material-symbols-rounded">{status.icon}</span>
+                          {status.label}
+                        </button>
+                      ))}
+                    </div>
+                  </>
                 )}
               </div>
-            )}
-            {/* Yazarlar (Kitap) */}
-            {icerik.yazarlar && icerik.yazarlar.length > 0 && (
-              <div>
-                <span className="text-[#8E8E93]">Yazar: </span>
-                <span className="text-white">{icerik.yazarlar.join(', ')}</span>
-              </div>
-            )}
-            {/* Sayfa Sayısı (Kitap) */}
-            {icerik.sayfaSayisi && icerik.sayfaSayisi > 0 && (
-              <div>
-                <span className="text-[#8E8E93]">Sayfa: </span>
-                <span className="text-white">{icerik.sayfaSayisi}</span>
-              </div>
-            )}
-            {/* Yayınevi (Kitap) */}
-            {icerik.yayinevi && (
-              <div>
-                <span className="text-[#8E8E93]">Yayınevi: </span>
-                <span className="text-white">{icerik.yayinevi}</span>
-              </div>
-            )}
-          </div>
 
-          {/* Harici Puan (TMDB/IMDB) */}
-          {icerik.hariciPuan && icerik.hariciPuan > 0 && (
-            <div className="flex items-center gap-2 mb-4">
-              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#f39c12]/15">
-                <Star size={14} className="text-[#f39c12] fill-[#f39c12]" />
-                <span className="text-[#f39c12] font-semibold text-sm">{icerik.hariciPuan.toFixed(1)}</span>
-                {icerik.hariciOySayisi && icerik.hariciOySayisi > 0 && (
-                  <span className="text-[#f39c12]/70 text-xs">({icerik.hariciOySayisi.toLocaleString('tr-TR')} oy)</span>
+              {/* Liste Button */}
+              <div style={{ position: 'relative', flex: 'none' }}>
+                <button 
+                  className="action-btn-large secondary"
+                  onClick={() => setListeDropdownOpen(!listeDropdownOpen)}
+                  title="Listeye Ekle"
+                  style={{ width: '56px' }}
+                >
+                  <span className="material-symbols-rounded">playlist_add</span>
+                </button>
+                
+                {listeDropdownOpen && (
+                  <>
+                    <div 
+                      style={{ position: 'fixed', inset: 0, zIndex: 40 }} 
+                      onClick={() => setListeDropdownOpen(false)} 
+                    />
+                    <div className="sidebar-card liste-dropdown-menu" style={{ 
+                      position: 'absolute', 
+                      top: '100%', 
+                      right: 0,
+                      minWidth: 'clamp(160px, 45vw, 220px)', 
+                      maxWidth: 'calc(100vw - 24px)',
+                      marginTop: '6px', 
+                      padding: 'clamp(4px, 1.5vw, 8px)',
+                      zIndex: 50 
+                    }}>
+                      {listeLoading ? (
+                        <div style={{ padding: 'clamp(8px, 2vw, 16px)', textAlign: 'center', color: 'var(--text-muted)', fontSize: 'clamp(11px, 3vw, 14px)' }}>
+                          Yükleniyor...
+                        </div>
+                      ) : kullaniciListeleri.length === 0 ? (
+                        <div style={{ padding: 'clamp(8px, 2vw, 16px)', textAlign: 'center', color: 'var(--text-muted)', fontSize: 'clamp(11px, 3vw, 14px)' }}>
+                          Henüz listeniz yok
+                        </div>
+                      ) : (
+                        kullaniciListeleri.map((liste) => {
+                          const isInList = icerikListeIds.includes(liste.id);
+                          return (
+                            <button
+                              key={liste.id}
+                              onClick={() => handleListeToggle(liste.id)}
+                              style={{
+                                width: '100%',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 'clamp(4px, 1.5vw, 8px)',
+                                padding: 'clamp(8px, 2vw, 12px)',
+                                background: isInList ? 'rgba(212, 168, 83, 0.15)' : 'transparent',
+                                border: 'none',
+                                borderRadius: 'clamp(4px, 1.5vw, 8px)',
+                                color: isInList ? 'var(--gold-primary)' : 'var(--text-primary)',
+                                cursor: 'pointer',
+                                fontSize: 'clamp(11px, 3vw, 14px)',
+                                textAlign: 'left',
+                              }}
+                            >
+                              <span className="material-symbols-rounded" style={{ fontSize: 'clamp(16px, 4vw, 20px)', fontVariationSettings: isInList ? "'FILL' 1" : "'FILL' 0" }}>
+                                {isInList ? 'check_circle' : 'add_circle'}
+                              </span>
+                              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {liste.ad}
+                              </span>
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </>
                 )}
               </div>
-              <span className="text-[#8E8E93] text-xs">TMDB</span>
             </div>
-          )}
 
-          {/* Description */}
-          {icerik.aciklama && (
-            <ExpandableDescription text={icerik.aciklama} />
-          )}
-
-          {/* Action Buttons */}
-          <div className="flex flex-wrap gap-3 mb-6">
-            <LibraryDropdown
-              icerikTur={icerik.tur}
-              currentStatus={kutuphaneDurumu}
-              onChange={handleLibraryChange}
-              onRemove={handleLibraryRemove}
-              loading={savingLibrary}
-            />
-            <ListeDropdown
-              icerikId={icerik.id}
-            />
-          </div>
-
-          {/* User Rating */}
-          <GlassPanel padding="md">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-white font-medium mb-1">Puanınız</p>
-                <p className="text-xs text-[#8E8E93]">
-                  {kullaniciPuani > 0 ? `${kullaniciPuani}/10` : 'Henüz puanlamadınız'}
-                </p>
+            {/* Quick Stats */}
+            <div className="quick-stats">
+              <div className="stat-item">
+                <div className="stat-value">{formatNumber(icerik.puanlamaSayisi)}</div>
+                <div className="stat-label">Puanlama</div>
               </div>
-              <div className="flex items-center gap-2">
-                <StarRating
-                  value={kullaniciPuani}
-                  onChange={handleRating}
-                  size="lg"
+              <div className="stat-item">
+                <div className="stat-value">{formatNumber(icerik.yorumSayisi)}</div>
+                <div className="stat-label">Yorum</div>
+              </div>
+              <div className="stat-item">
+                <div className="stat-value">{formatNumber(icerik.listeyeEklenmeSayisi)}</div>
+                <div className="stat-label">Liste</div>
+              </div>
+            </div>
+          </aside>
+
+          {/* CENTER COLUMN - Main Info */}
+          <div className="info-column">
+            {/* Content Type Badge */}
+            <div className="content-type-badge">
+              <span className="material-symbols-rounded">
+                {icerik.tur === 'Film' ? 'movie' : icerik.tur === 'Dizi' ? 'tv' : 'menu_book'}
+              </span>
+              {icerik.tur === 'Film' ? 'Film' : icerik.tur === 'Dizi' ? 'Dizi' : 'Kitap'}
+            </div>
+
+            {/* Title */}
+            <h1 className="detail-content-title">{icerik.baslik}</h1>
+
+            {/* Meta Info */}
+            <div className="detail-content-meta">
+              {yil && (
+                <>
+                  <div className="meta-item">
+                    <span className="material-symbols-rounded">calendar_month</span>
+                    {yil}
+                  </div>
+                  <div className="meta-divider"></div>
+                </>
+              )}
+              {icerik.sure && icerik.sure > 0 && (
+                <>
+                  <div className="meta-item">
+                    <span className="material-symbols-rounded">schedule</span>
+                    {formatDuration(icerik.sure)}
+                  </div>
+                  <div className="meta-divider"></div>
+                </>
+              )}
+              {icerik.yonetmen && (
+                <div className="meta-item">
+                  <span className="material-symbols-rounded">movie_filter</span>
+                  {icerik.yonetmen}
+                </div>
+              )}
+              {icerik.yazarlar && icerik.yazarlar.length > 0 && (
+                <div className="meta-item">
+                  <span className="material-symbols-rounded">edit</span>
+                  {icerik.yazarlar.join(', ')}
+                </div>
+              )}
+            </div>
+
+            {/* Rating Section */}
+            <div className="rating-section">
+              {/* External Rating - TMDB for films/TV, skip for books */}
+              {(icerik.tur === 'Film' || icerik.tur === 'Dizi') && icerik.hariciPuan && icerik.hariciPuan > 0 && (
+                <div className="rating-box">
+                  <div className="rating-source">TMDB</div>
+                  <div className="rating-value">
+                    <span className="material-symbols-rounded filled">star</span>
+                    {icerik.hariciPuan.toFixed(1)}
+                  </div>
+                  {icerik.hariciOySayisi && icerik.hariciOySayisi > 0 && (
+                    <div className="rating-count">{formatNumber(icerik.hariciOySayisi)} oy</div>
+                  )}
+                </div>
+              )}
+
+              {/* SAGA Rating */}
+              <div className="rating-box">
+                <div className="rating-source">SAGA</div>
+                <div className="rating-value">
+                  <span className="material-symbols-rounded filled">star</span>
+                  {icerik.ortalamaPuan > 0 ? icerik.ortalamaPuan.toFixed(1) : '-'}
+                </div>
+                <div className="rating-count">{formatNumber(icerik.puanlamaSayisi)} değerlendirme</div>
+              </div>
+
+              {/* User Rating */}
+              <div className="user-rating-box">
+                <div className="user-rating-label">Puanınız</div>
+                <StarRating 
+                  value={kullaniciPuani} 
+                  onChange={handleRating} 
                   readonly={savingRating}
                 />
-                {savingRating && <Loader2 size={16} className="animate-spin text-[#8E8E93]" />}
+                {kullaniciPuani > 0 && (
+                  <div className="user-rating-text">
+                    {kullaniciPuani}/10
+                  </div>
+                )}
               </div>
             </div>
-          </GlassPanel>
+
+            {/* Genres */}
+            {icerik.turler && icerik.turler.length > 0 && (
+              <div className="genres">
+                {icerik.turler.map((tur, index) => (
+                  <span key={index} className="genre-tag">{tur}</span>
+                ))}
+              </div>
+            )}
+
+            {/* Overview */}
+            {icerik.aciklama && (
+              <div>
+                <h3 className="section-title">
+                  <span className="material-symbols-rounded">description</span>
+                  Özet
+                </h3>
+                <p className={`overview-text ${!overviewExpanded ? 'expandable' : 'expanded'}`}>
+                  {icerik.aciklama}
+                </p>
+                {icerik.aciklama.length > 400 && (
+                  <button 
+                    className={`expand-btn ${overviewExpanded ? 'expanded' : ''}`}
+                    onClick={() => setOverviewExpanded(!overviewExpanded)}
+                  >
+                    {overviewExpanded ? 'Daha az göster' : 'Devamını oku'}
+                    <span className="material-symbols-rounded">expand_more</span>
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Cast Section */}
+            {icerik.oyuncular && icerik.oyuncular.length > 0 && (
+              <div className="cast-section">
+                <h3 className="section-title">
+                  <span className="material-symbols-rounded">group</span>
+                  Oyuncu Kadrosu
+                </h3>
+                <div className="cast-scroll">
+                  {icerik.oyuncular.slice(0, 12).map((oyuncu, index) => (
+                    <div key={index} className="cast-card">
+                      {oyuncu.profilUrl ? (
+                        <img src={oyuncu.profilUrl} alt={oyuncu.ad} className="cast-photo" />
+                      ) : (
+                        <div className="cast-photo" style={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          justifyContent: 'center',
+                          background: 'linear-gradient(135deg, rgba(212, 168, 83, 0.2), rgba(212, 168, 83, 0.05))'
+                        }}>
+                          <span style={{ fontSize: '24px', fontWeight: 600, color: 'var(--text-muted)' }}>
+                            {oyuncu.ad?.charAt(0).toUpperCase()}
+                          </span>
+                        </div>
+                      )}
+                      <div className="cast-name">{oyuncu.ad}</div>
+                      {oyuncu.karakter && (
+                        <div className="cast-role">{oyuncu.karakter}</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Tabs */}
+            <div className="tabs-container">
+              <div className="tabs-header">
+                <button 
+                  className={`tab-btn ${activeTab === 'yorumlar' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('yorumlar')}
+                >
+                  <span className="material-symbols-rounded">chat</span>
+                  Yorumlar
+                  <span className="tab-count">{yorumlar.length}</span>
+                </button>
+                <button 
+                  className={`tab-btn ${activeTab === 'listeler' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('listeler')}
+                >
+                  <span className="material-symbols-rounded">format_list_bulleted</span>
+                  Listelerde
+                  <span className="tab-count">{listeler.length}</span>
+                </button>
+                <button 
+                  className={`tab-btn ${activeTab === 'aktiviteler' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('aktiviteler')}
+                >
+                  <span className="material-symbols-rounded">history</span>
+                  Aktiviteler
+                  <span className="tab-count">{aktiviteler.length}</span>
+                </button>
+              </div>
+
+              {/* Yorumlar Tab */}
+              <div className={`tab-content ${activeTab === 'yorumlar' ? 'active' : ''}`}>
+                {/* Comment Form */}
+                <div className="comment-form-card" id="yorum-form">
+                  {/* Yanıt Göstergesi */}
+                  {replyingTo && (
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '10px 14px',
+                      background: 'rgba(212,168,83,0.1)',
+                      borderRadius: '8px',
+                      marginBottom: '12px',
+                      border: '1px solid rgba(212,168,83,0.2)'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span className="material-symbols-rounded" style={{ color: 'var(--gold-primary)', fontSize: '18px' }}>reply</span>
+                        <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                          <strong style={{ color: 'var(--gold-primary)' }}>{replyingTo.kullaniciAdi}</strong> adlı kullanıcıya yanıt yazıyorsunuz
+                        </span>
+                      </div>
+                      <button 
+                        onClick={cancelReply}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          padding: '4px',
+                          display: 'flex',
+                          alignItems: 'center'
+                        }}
+                      >
+                        <span className="material-symbols-rounded" style={{ color: 'var(--text-muted)', fontSize: '18px' }}>close</span>
+                      </button>
+                    </div>
+                  )}
+                  
+                  <div className="comment-form-header">
+                    <div className="comment-form-avatar" style={{
+                      background: 'linear-gradient(135deg, var(--gold-primary), var(--gold-dim))',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: 'var(--void)'
+                    }}>
+                      {user ? user.kullaniciAdi?.charAt(0).toUpperCase() : '?'}
+                    </div>
+                    <div>
+                      <div className="comment-form-title">{replyingTo ? 'Yanıtınızı yazın' : 'Düşüncelerinizi paylaşın'}</div>
+                      <div className="comment-form-subtitle">{replyingTo ? `${replyingTo.kullaniciAdi} adlı kullanıcının yorumuna yanıt verin` : `Bu ${icerik.tur === 'Film' ? 'film' : icerik.tur === 'Dizi' ? 'dizi' : 'kitap'} hakkında ne düşünüyorsunuz?`}</div>
+                    </div>
+                  </div>
+
+                  <textarea
+                    className="comment-textarea"
+                    placeholder={replyingTo ? 'Yanıtınızı yazın...' : 'Yorumunuzu yazın...'}
+                    value={yorumText}
+                    onChange={(e) => setYorumText(e.target.value)}
+                    rows={4}
+                  />
+
+                  <div className="comment-form-options">
+                    <div className="form-options-left">
+                      {/* Yanıtlarda puan verme yok */}
+                      {!replyingTo && (
+                        <div className="form-rating">
+                          <span className="form-rating-label">Puan:</span>
+                          <div className="form-stars">
+                            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((star) => (
+                              <button
+                                key={star}
+                                type="button"
+                                className={`star ${yorumPuan >= star ? 'active' : ''}`}
+                                onClick={() => setYorumPuan(star)}
+                              >
+                                <span className="material-symbols-rounded">star</span>
+                              </button>
+                            ))}
+                          </div>
+                          {yorumPuan > 0 && <span style={{ marginLeft: '8px', color: 'var(--gold-primary)' }}>{yorumPuan}/10</span>}
+                        </div>
+                      )}
+
+                      <label className="spoiler-toggle">
+                        <input
+                          type="checkbox"
+                          className="spoiler-checkbox"
+                          checked={spoilerIceriyor}
+                          onChange={(e) => setSpoilerIceriyor(e.target.checked)}
+                        />
+                        <span className="spoiler-checkmark">
+                          <span className="material-symbols-rounded">check</span>
+                        </span>
+                        Spoiler içeriyor
+                      </label>
+                    </div>
+
+                    <button 
+                      className="submit-comment-btn"
+                      onClick={handleCommentSubmit}
+                      disabled={yorumLoading || !yorumText.trim()}
+                    >
+                      <span className="material-symbols-rounded">send</span>
+                      {replyingTo ? 'Yanıtla' : 'Gönder'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Comments List */}
+                {yorumlar.length > 0 ? (
+                  <>
+                    {(showAllComments ? yorumlar : yorumlar.slice(0, 3)).map((yorum) => (
+                      <CommentPreview 
+                        key={yorum.id} 
+                        yorum={yorum}
+                        onLike={handleLikeComment}
+                        onDelete={user?.id === yorum.kullaniciId ? handleDeleteComment : undefined}
+                        onReply={handleReplyClick}
+                        isExpanded={expandedComments.has(yorum.id)}
+                        onToggleExpand={() => {
+                          setExpandedComments(prev => {
+                            const newSet = new Set(prev);
+                            if (newSet.has(yorum.id)) newSet.delete(yorum.id);
+                            else newSet.add(yorum.id);
+                            return newSet;
+                          });
+                        }}
+                        isSpoilerRevealed={revealedSpoilers.has(yorum.id)}
+                        onToggleSpoiler={() => {
+                          setRevealedSpoilers(prev => {
+                            const newSet = new Set(prev);
+                            if (newSet.has(yorum.id)) newSet.delete(yorum.id);
+                            else newSet.add(yorum.id);
+                            return newSet;
+                          });
+                        }}
+                      />
+                    ))}
+                    {yorumlar.length > 3 && (
+                      <button 
+                        className="show-more-btn"
+                        onClick={() => setShowAllComments(!showAllComments)}
+                      >
+                        {showAllComments ? (
+                          <>
+                            <span className="material-symbols-rounded">expand_less</span>
+                            Daha az göster
+                          </>
+                        ) : (
+                          <>
+                            <span className="material-symbols-rounded">expand_more</span>
+                            Tüm yorumları gör ({yorumlar.length - 3} daha)
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  <div className="sidebar-card" style={{ textAlign: 'center', padding: '40px' }}>
+                    <span className="material-symbols-rounded" style={{ fontSize: '48px', color: 'var(--text-muted)', marginBottom: '16px', display: 'block' }}>
+                      chat_bubble_outline
+                    </span>
+                    <p style={{ color: 'var(--text-muted)' }}>Henüz yorum yapılmamış. İlk yorumu siz yapın!</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Listeler Tab */}
+              <div className={`tab-content ${activeTab === 'listeler' ? 'active' : ''}`}>
+                {listeler.length > 0 ? (
+                  listeler.map((liste) => (
+                    <ListPreview key={liste.id} liste={liste} />
+                  ))
+                ) : (
+                  <div className="sidebar-card" style={{ textAlign: 'center', padding: '40px' }}>
+                    <span className="material-symbols-rounded" style={{ fontSize: '48px', color: 'var(--text-muted)', marginBottom: '16px', display: 'block' }}>
+                      playlist_add
+                    </span>
+                    <p style={{ color: 'var(--text-muted)' }}>Bu içerik henüz hiçbir listede yok.</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Aktiviteler Tab */}
+              <div className={`tab-content ${activeTab === 'aktiviteler' ? 'active' : ''}`}>
+                {aktiviteler.length > 0 ? (
+                  <div className="detail-aktiviteler-list">
+                    {aktiviteler.map((aktivite, index) => (
+                      <FeedActivityCard 
+                        key={aktivite.id} 
+                        aktivite={aktivite}
+                        isLoggedIn={!!user}
+                        index={index}
+                        currentUserName={user?.kullaniciAdi}
+                        compact={true}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="sidebar-card" style={{ textAlign: 'center', padding: '40px' }}>
+                    <span className="material-symbols-rounded" style={{ fontSize: '48px', color: 'var(--text-muted)', marginBottom: '16px', display: 'block' }}>
+                      history
+                    </span>
+                    <p style={{ color: 'var(--text-muted)' }}>Henüz aktivite yok.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* RIGHT COLUMN - Sidebar */}
+          <aside className="sidebar-column">
+            {/* Film Info */}
+            <div className="sidebar-card">
+              <h4 className="sidebar-title">
+                <span className="material-symbols-rounded">info</span>
+                Bilgiler
+              </h4>
+              <div className="info-list">
+                {icerik.yayinTarihi && (
+                  <div className="info-item">
+                    <span className="info-label">Yayın Tarihi</span>
+                    <span className="info-value">
+                      {new Date(icerik.yayinTarihi).toLocaleDateString('tr-TR', { 
+                        day: 'numeric', 
+                        month: 'long', 
+                        year: 'numeric' 
+                      })}
+                    </span>
+                  </div>
+                )}
+                {icerik.sure && icerik.sure > 0 && (
+                  <div className="info-item">
+                    <span className="info-label">Süre</span>
+                    <span className="info-value">{formatDuration(icerik.sure)}</span>
+                  </div>
+                )}
+                {icerik.yonetmen && (
+                  <div className="info-item">
+                    <span className="info-label">Yönetmen</span>
+                    <span className="info-value">{icerik.yonetmen}</span>
+                  </div>
+                )}
+                {icerik.yazarlar && icerik.yazarlar.length > 0 && (
+                  <div className="info-item">
+                    <span className="info-label">Yazar</span>
+                    <span className="info-value">{icerik.yazarlar.join(', ')}</span>
+                  </div>
+                )}
+                {icerik.sayfaSayisi && icerik.sayfaSayisi > 0 && (
+                  <div className="info-item">
+                    <span className="info-label">Sayfa Sayısı</span>
+                    <span className="info-value">{icerik.sayfaSayisi.toLocaleString('tr-TR')}</span>
+                  </div>
+                )}
+                {icerik.yayinevi && (
+                  <div className="info-item">
+                    <span className="info-label">Yayınevi</span>
+                    <span className="info-value">{icerik.yayinevi}</span>
+                  </div>
+                )}
+                {icerik.isbn && (
+                  <div className="info-item">
+                    <span className="info-label">ISBN</span>
+                    <span className="info-value">{icerik.isbn}</span>
+                  </div>
+                )}
+                {icerik.sezonSayisi && icerik.sezonSayisi > 0 && (
+                  <div className="info-item">
+                    <span className="info-label">Sezon</span>
+                    <span className="info-value">{icerik.sezonSayisi}</span>
+                  </div>
+                )}
+                {icerik.bolumSayisi && icerik.bolumSayisi > 0 && (
+                  <div className="info-item">
+                    <span className="info-label">Bölüm</span>
+                    <span className="info-value">{icerik.bolumSayisi}</span>
+                  </div>
+                )}
+                {icerik.kategoriler && icerik.kategoriler.length > 0 && (
+                  <div className="info-item">
+                    <span className="info-label">Kategoriler</span>
+                    <span className="info-value">{icerik.kategoriler.join(', ')}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* External Links */}
+            <div className="sidebar-card">
+              <h4 className="sidebar-title">
+                <span className="material-symbols-rounded">link</span>
+                Bağlantılar
+              </h4>
+              <div className="external-links">
+                {icerik.hariciId && icerik.apiKaynagi === 'tmdb' && (
+                  <a 
+                    href={`https://www.themoviedb.org/movie/${icerik.hariciId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="external-link link-tmdb"
+                  >
+                    <span className="material-symbols-rounded">database</span>
+                    TMDB
+                    <span className="material-symbols-rounded link-icon">open_in_new</span>
+                  </a>
+                )}
+                {/* IMDb & YouTube - Only for films and TV shows */}
+                {(icerik.tur === 'Film' || icerik.tur === 'Dizi') && (
+                  <>
+                    <a 
+                      href={`https://www.imdb.com/find?q=${encodeURIComponent(icerik.baslik)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="external-link link-imdb"
+                    >
+                      <span className="material-symbols-rounded">movie</span>
+                      IMDb
+                      <span className="material-symbols-rounded link-icon">open_in_new</span>
+                    </a>
+                    <a 
+                      href={`https://www.youtube.com/results?search_query=${encodeURIComponent(icerik.baslik + ' trailer')}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="external-link link-youtube"
+                    >
+                      <span className="material-symbols-rounded">play_circle</span>
+                      YouTube
+                      <span className="material-symbols-rounded link-icon">open_in_new</span>
+                    </a>
+                  </>
+                )}
+                {/* Google Books & Google Search - Only for books */}
+                {icerik.tur === 'Kitap' && (
+                  <>
+                    {icerik.hariciId && (
+                      <a 
+                        href={`https://books.google.com/books?id=${icerik.hariciId}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="external-link link-google-books"
+                      >
+                        <span className="material-symbols-rounded">menu_book</span>
+                        Google Books
+                        <span className="material-symbols-rounded link-icon">open_in_new</span>
+                      </a>
+                    )}
+                    <a 
+                      href={`https://www.google.com/search?q=${encodeURIComponent(icerik.baslik + (icerik.yonetmen ? ' ' + icerik.yonetmen : '') + ' kitap')}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="external-link link-google"
+                    >
+                      <span className="material-symbols-rounded">search</span>
+                      Google'da Ara
+                      <span className="material-symbols-rounded link-icon">open_in_new</span>
+                    </a>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Where to Watch - Only for films and TV shows */}
+            {(icerik.tur === 'Film' || icerik.tur === 'Dizi') && (
+              <div className="sidebar-card">
+                <h4 className="sidebar-title">
+                  <span className="material-symbols-rounded">live_tv</span>
+                  Nereden İzlenir?
+                </h4>
+                <div className="providers-list">
+                  <a 
+                    href={`https://www.netflix.com/search?q=${encodeURIComponent(icerik.baslik)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="provider-badge"
+                  >
+                    <img src="https://image.tmdb.org/t/p/original/pbpMk2JmcoNnQwx5JGpXngfoWtp.jpg" alt="Netflix" />
+                    Netflix
+                  </a>
+                  <a 
+                    href={`https://www.primevideo.com/search?phrase=${encodeURIComponent(icerik.baslik)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="provider-badge"
+                  >
+                    <img src="https://image.tmdb.org/t/p/original/emthp39XA2YScoYL1p0sdbAH2WA.jpg" alt="Amazon Prime Video" />
+                    Prime Video
+                  </a>
+                  <a 
+                    href={`https://www.disneyplus.com/search?q=${encodeURIComponent(icerik.baslik)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="provider-badge"
+                  >
+                    <img src="https://image.tmdb.org/t/p/original/7rwgEs15tFwyR9NPQ5vpzxTj19Q.jpg" alt="Disney+" />
+                    Disney+
+                  </a>
+                  <a 
+                    href={`https://tv.apple.com/search?term=${encodeURIComponent(icerik.baslik)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="provider-badge"
+                  >
+                    <img src="https://image.tmdb.org/t/p/original/9ghgSC0MA082EL6HLCW3GalykFD.jpg" alt="Apple TV+" />
+                    Apple TV
+                  </a>
+                  <a 
+                    href={`https://www.justwatch.com/tr/search?q=${encodeURIComponent(icerik.baslik)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="provider-badge provider-all"
+                  >
+                    <span className="material-symbols-rounded">search</span>
+                    Tümünde Ara
+                  </a>
+                </div>
+              </div>
+            )}
+
+            {/* Similar Content */}
+            {similarContent.length > 0 && (
+              <div className="sidebar-card">
+                <h4 className="sidebar-title">
+                  <span className="material-symbols-rounded">auto_awesome</span>
+                  Benzer İçerikler
+                </h4>
+                <div className="similar-grid">
+                  {similarContent.slice(0, 4).map((item) => (
+                    <ContentCard
+                      key={item.id}
+                      data={icerikToCardData(item)}
+                      size="sm"
+                      showBadge={true}
+                      showRatings={true}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+          </aside>
+        </div>
+      </main>
+    </div>
+  );
+}
+
+// ============================================
+// REPLY ITEM COMPONENT (Ana yorumlarla aynı stil)
+// ============================================
+
+interface ReplyItemProps {
+  yanit: Yorum;
+  onLike: (yorumId: number) => void;
+  onReply?: (yorum: Yorum) => void;
+}
+
+function ReplyItem({ yanit, onLike, onReply }: ReplyItemProps) {
+  const navigate = useNavigate();
+  const [expanded, setExpanded] = useState(false);
+  const [spoilerRevealed, setSpoilerRevealed] = useState(false);
+  
+  const replyText = yanit.icerik || yanit.icerikOzet || '';
+  const isLong = replyText.length > 200;
+  
+  const tarihStr = formatDistanceToNow(new Date(yanit.olusturulmaZamani), {
+    addSuffix: true,
+    locale: tr,
+  });
+  
+  return (
+    <div className="comment-preview reply-item" style={{ padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+      <div className="comment-header">
+        <img 
+          src={yanit.kullaniciAvatar || `https://ui-avatars.com/api/?name=${yanit.kullaniciAdi}&background=d4a853&color=030304`}
+          alt={yanit.kullaniciAdi}
+          className="comment-avatar"
+          style={{ cursor: 'pointer' }}
+          onClick={() => navigate(`/profil/${yanit.kullaniciAdi}`)}
+        />
+        <div className="comment-user-info">
+          <div 
+            className="comment-username" 
+            style={{ cursor: 'pointer' }}
+            onClick={() => navigate(`/profil/${yanit.kullaniciAdi}`)}
+          >
+            {yanit.kullaniciAdi}
+          </div>
+          <div className="comment-date">{tarihStr}</div>
         </div>
       </div>
 
-      {/* Cast Section - Oyuncu Kadrosu */}
-      {icerik.oyuncular && icerik.oyuncular.length > 0 && (
-        <section className="mb-8">
-          <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
-              <circle cx="9" cy="7" r="4"/>
-              <path d="M22 21v-2a4 4 0 0 0-3-3.87"/>
-              <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-            </svg>
-            Oyuncu Kadrosu
-          </h2>
-          <div className="flex overflow-x-auto gap-4 pb-4 hide-scrollbar">
-            {icerik.oyuncular.slice(0, 12).map((oyuncu, index) => (
-              <div key={index} className="flex-shrink-0 w-28 text-center">
-                <div className="w-28 h-28 rounded-full overflow-hidden bg-white/5 mb-2 mx-auto border-2 border-white/10">
-                  {oyuncu.profilUrl ? (
-                    <img
-                      src={oyuncu.profilUrl}
-                      alt={oyuncu.ad}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#6C5CE7]/30 to-[#00CEC9]/30">
-                      <span className="text-2xl text-white font-semibold">
-                        {oyuncu.ad?.charAt(0).toUpperCase()}
-                      </span>
-                    </div>
-                  )}
-                </div>
-                <p className="text-white text-sm font-medium line-clamp-1">{oyuncu.ad}</p>
-                {oyuncu.karakter && (
-                  <p className="text-[#8E8E93] text-xs line-clamp-1">{oyuncu.karakter}</p>
-                )}
-              </div>
-            ))}
-          </div>
-        </section>
+      {/* Spoiler veya İçerik */}
+      {yanit.spoilerIceriyor && !spoilerRevealed ? (
+        <div 
+          className="spoiler-warning" 
+          onClick={() => setSpoilerRevealed(true)}
+          style={{ cursor: 'pointer', marginBottom: '0', marginTop: '8px' }}
+        >
+          <span className="material-symbols-rounded">warning</span>
+          Spoiler içeriyor - görmek için tıklayın
+        </div>
+      ) : (
+        <p className={`comment-text ${isLong && !expanded ? 'truncated' : ''}`} style={{ marginTop: '8px' }}>
+          {isLong && !expanded ? replyText.slice(0, 200) + '...' : replyText}
+        </p>
+      )}
+      
+      {isLong && !yanit.spoilerIceriyor && (
+        <button 
+          className="comment-expand-btn"
+          onClick={() => setExpanded(!expanded)}
+        >
+          {expanded ? 'Daha az göster' : 'Devamını oku'}
+          <span className="material-symbols-rounded">
+            {expanded ? 'expand_less' : 'expand_more'}
+          </span>
+        </button>
       )}
 
-      {/* Comments Section */}
-      <section>
-        <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
-          <MessageCircle size={20} />
-          Yorumlar ({yorumlar.length})
-        </h2>
+      <div className="comment-actions">
+        <button 
+          className={`comment-action-btn ${yanit.kullaniciBegendiMi ? 'liked' : ''}`}
+          onClick={() => onLike(yanit.id)}
+        >
+          <span 
+            className="material-symbols-rounded" 
+            style={{ fontVariationSettings: yanit.kullaniciBegendiMi ? "'FILL' 1" : "'FILL' 0" }}
+          >
+            favorite
+          </span>
+          {yanit.begeniSayisi || 0}
+        </button>
+        <button 
+          className="comment-action-btn"
+          onClick={() => onReply?.(yanit)}
+        >
+          <span className="material-symbols-rounded">reply</span>
+          Yanıtla
+        </button>
+      </div>
+    </div>
+  );
+}
 
-        {/* Comment Form */}
-        <div className="mb-6">
-          <CommentForm icerikId={icerik.id} onSubmit={handleNewComment} />
-        </div>
+// ============================================
+// COMMENT PREVIEW COMPONENT
+// ============================================
 
-        {/* Comments List */}
-        {yorumlar.length > 0 ? (
-          <div>
-            {yorumlar.map((yorum) => (
-              <CommentCard
-                key={yorum.id}
-                yorum={yorum}
-                onLike={handleLikeComment}
-                onEdit={handleEditComment}
-                onDelete={handleDeleteComment}
-                currentUserId={user?.id}
-              />
-            ))}
+interface CommentPreviewProps {
+  yorum: Yorum;
+  onLike: (yorumId: number) => void;
+  onDelete?: (yorumId: number) => void;
+  onReply?: (yorum: Yorum) => void;
+  isExpanded: boolean;
+  onToggleExpand: () => void;
+  isSpoilerRevealed: boolean;
+  onToggleSpoiler: () => void;
+}
+
+function CommentPreview({ yorum, onLike, onDelete, onReply, isExpanded, onToggleExpand, isSpoilerRevealed, onToggleSpoiler }: CommentPreviewProps) {
+  const navigate = useNavigate();
+  const [showMenu, setShowMenu] = useState(false);
+  
+  // Önce tam içeriği (icerik), yoksa özeti kullan
+  const commentText = yorum.icerik || yorum.icerikOzet || '';
+  const isLongComment = commentText.length > 250;
+
+  const tarihStr = formatDistanceToNow(new Date(yorum.olusturulmaZamani), {
+    addSuffix: true,
+    locale: tr,
+  });
+
+  return (
+    <div className="comment-preview" id={`yorum-${yorum.id}`}>
+      <div className="comment-header">
+        <img 
+          src={yorum.kullaniciAvatar || `https://ui-avatars.com/api/?name=${yorum.kullaniciAdi}&background=d4a853&color=030304`}
+          alt={yorum.kullaniciAdi}
+          className="comment-avatar"
+          style={{ cursor: 'pointer' }}
+          onClick={() => navigate(`/profil/${yorum.kullaniciAdi}`)}
+        />
+        <div className="comment-user-info">
+          <div 
+            className="comment-username" 
+            style={{ cursor: 'pointer' }}
+            onClick={() => navigate(`/profil/${yorum.kullaniciAdi}`)}
+          >
+            {yorum.kullaniciAdi}
           </div>
-        ) : (
-          <GlassPanel padding="lg" className="text-center">
-            <MessageCircle size={40} className="mx-auto mb-3 text-[#8E8E93]" />
-            <p className="text-[#8E8E93]">Henüz yorum yapılmamış. İlk yorumu siz yapın!</p>
-          </GlassPanel>
+          <div className="comment-date">{tarihStr}</div>
+        </div>
+        {yorum.puan && (
+          <div className="comment-rating">
+            <span className="material-symbols-rounded filled">star</span>
+            {yorum.puan}
+          </div>
         )}
-      </section>
+        
+        {/* Delete Menu */}
+        {onDelete && (
+          <div style={{ position: 'relative' }}>
+            <button 
+              onClick={() => setShowMenu(!showMenu)}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: 'var(--text-muted)',
+                cursor: 'pointer',
+                padding: '4px',
+              }}
+            >
+              <span className="material-symbols-rounded">more_horiz</span>
+            </button>
+            
+            {showMenu && (
+              <>
+                <div 
+                  style={{ position: 'fixed', inset: 0, zIndex: 40 }} 
+                  onClick={() => setShowMenu(false)} 
+                />
+                <div style={{
+                  position: 'absolute',
+                  right: 0,
+                  top: '100%',
+                  background: 'var(--void-surface)',
+                  border: '1px solid var(--glass-border)',
+                  borderRadius: '8px',
+                  overflow: 'hidden',
+                  zIndex: 50,
+                  minWidth: '120px',
+                }}>
+                  <button
+                    onClick={() => {
+                      onDelete(yorum.id);
+                      setShowMenu(false);
+                    }}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '10px 14px',
+                      background: 'none',
+                      border: 'none',
+                      color: 'var(--error)',
+                      cursor: 'pointer',
+                      fontSize: '13px',
+                    }}
+                  >
+                    <span className="material-symbols-rounded">delete</span>
+                    Sil
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Spoiler Warning */}
+      {yorum.spoilerIceriyor && !isSpoilerRevealed ? (
+        <div 
+          className="spoiler-warning" 
+          onClick={onToggleSpoiler}
+          style={{ cursor: 'pointer', marginBottom: '0' }}
+        >
+          <span className="material-symbols-rounded">warning</span>
+          Spoiler içeriyor - görmek için tıklayın
+        </div>
+      ) : (
+        <>
+          {yorum.spoilerIceriyor && (
+            <button 
+              className="spoiler-hide-btn"
+              onClick={onToggleSpoiler}
+            >
+              <span className="material-symbols-rounded">visibility_off</span>
+              Spoiler'ı gizle
+            </button>
+          )}
+          <p className={`comment-text ${isLongComment && !isExpanded ? 'truncated' : ''}`}>
+            {isLongComment && !isExpanded 
+              ? commentText.slice(0, 250) + '...' 
+              : commentText
+            }
+          </p>
+          {isLongComment && (
+            <button 
+              className="comment-expand-btn"
+              onClick={onToggleExpand}
+            >
+              {isExpanded ? 'Daha az göster' : 'Devamını oku'}
+              <span className="material-symbols-rounded">
+                {isExpanded ? 'expand_less' : 'expand_more'}
+              </span>
+            </button>
+          )}
+        </>
+      )}
+
+      <div className="comment-actions">
+        <button 
+          className={`comment-action-btn ${yorum.kullaniciBegendiMi ? 'liked' : ''}`}
+          onClick={() => onLike(yorum.id)}
+        >
+          <span 
+            className="material-symbols-rounded" 
+            style={{ fontVariationSettings: yorum.kullaniciBegendiMi ? "'FILL' 1" : "'FILL' 0" }}
+          >
+            favorite
+          </span>
+          {yorum.begeniSayisi}
+        </button>
+        <button 
+          className="comment-action-btn"
+          onClick={() => onReply?.(yorum)}
+        >
+          <span className="material-symbols-rounded">reply</span>
+          Yanıtla
+        </button>
+      </div>
+
+      {/* Yanıtlar */}
+      {yorum.yanitlar && yorum.yanitlar.length > 0 && (
+        <div className="comment-replies" style={{ 
+          marginTop: '8px',
+          paddingTop: '8px',
+          borderTop: '1px solid rgba(255,255,255,0.05)'
+        }}>
+          {yorum.yanitlar.map((yanit) => (
+            <ReplyItem 
+              key={yanit.id} 
+              yanit={yanit} 
+              onLike={onLike} 
+              onReply={onReply} 
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================
+// LIST PREVIEW COMPONENT
+// ============================================
+
+interface ListPreviewProps {
+  liste: Liste;
+}
+
+function ListPreview({ liste }: ListPreviewProps) {
+  const navigate = useNavigate();
+
+  return (
+    <div 
+      className="list-preview"
+      onClick={() => navigate(`/liste/${liste.id}`)}
+    >
+      <div className="list-posters">
+        {/* TODO: Show list content posters */}
+        <div className="list-poster" style={{ 
+          background: 'var(--void-surface)', 
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'center',
+          marginLeft: 0 
+        }}>
+          <span className="material-symbols-rounded" style={{ color: 'var(--text-muted)' }}>movie</span>
+        </div>
+      </div>
+      <div className="list-info">
+        <div className="list-title">{liste.ad}</div>
+        <div className="list-meta">{liste.icerikSayisi || 0} içerik</div>
+        <div className="list-creator">
+          <img 
+            src={`https://ui-avatars.com/api/?name=${liste.kullaniciAdi}&background=d4a853&color=030304&size=20`}
+            alt={liste.kullaniciAdi}
+          />
+          {liste.kullaniciAdi}
+        </div>
+      </div>
     </div>
   );
 }

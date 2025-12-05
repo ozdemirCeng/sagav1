@@ -4,7 +4,8 @@ import { MantineProvider } from '@mantine/core';
 import '@mantine/core/styles.css';
 
 import { AuthProvider, AuthModalProvider } from './context/AuthContext';
-import { GlassLayout } from './components/layout';
+import { ThemeProvider } from './context/ThemeContext';
+import { VoidLayout } from './components/layout';
 import LoginPage from './pages/glass/LoginPage';
 import RegisterPage from './pages/glass/RegisterPage';
 import ForgotPasswordPage from './pages/glass/ForgotPasswordPage';
@@ -18,7 +19,7 @@ import LibraryPage from './pages/glass/LibraryPage';
 import ListsPage from './pages/glass/ListsPage';
 import ListEditPage from './pages/glass/ListEditPage';
 import LikesPage from './pages/glass/LikesPage';
-import NotificationsPage from './pages/NotificationsPage';
+import NotificationsPage from './pages/glass/NotificationsPage';
 
 // Client örneğini oluştur (Cache ayarlarıyla)
 const queryClient = new QueryClient({
@@ -34,37 +35,40 @@ function App() {
     return (
         <QueryClientProvider client={queryClient}>
             <MantineProvider>
-                <AuthProvider>
-                    <BrowserRouter>
-                        <AuthModalProvider>
-                            <Routes>
-                                {/* Auth Routes - No Layout */}
-                                <Route path="/giris" element={<LoginPage />} />
-                                <Route path="/kayit" element={<RegisterPage />} />
-                                <Route path="/sifre-sifirla" element={<ForgotPasswordPage />} />
-                                <Route path="/sifre-yenile" element={<ResetPasswordPage />} />
+                <ThemeProvider>
+                    <AuthProvider>
+                        <BrowserRouter>
+                            <AuthModalProvider>
+                                <Routes>
+                                    {/* Auth Routes - No Layout */}
+                                    <Route path="/giris" element={<LoginPage />} />
+                                    <Route path="/kayit" element={<RegisterPage />} />
+                                    <Route path="/sifre-sifirla" element={<ForgotPasswordPage />} />
+                                    <Route path="/sifre-yenile" element={<ResetPasswordPage />} />
 
-                                {/* Main App Routes with Glass Layout */}
-                                <Route element={<GlassLayout />}>
-                                    <Route path="/" element={<FeedPage />} />
-                                    <Route path="/kesfet" element={<ExplorePage />} />
-                                    <Route path="/icerik/:tip/:id" element={<DetailPage />} />
-                                    <Route path="/icerik/:id" element={<DetailPage />} />
-                                    <Route path="/profil/:username" element={<ProfilePage />} />
-                                    <Route path="/ayarlar" element={<SettingsPage />} />
-                                    <Route path="/kutuphane" element={<LibraryPage />} />
-                                    <Route path="/listelerim" element={<ListsPage />} />
-                                    <Route path="/liste/:id/duzenle" element={<ListEditPage />} />
-                                    <Route path="/begeniler" element={<LikesPage />} />
-                                    <Route path="/bildirimler" element={<NotificationsPage />} />
-                                </Route>
+                                    {/* All Pages with VoidLayout */}
+                                    <Route element={<VoidLayout />}>
+                                        <Route path="/" element={<FeedPage />} />
+                                        <Route path="/akis" element={<FeedPage />} />
+                                        <Route path="/bildirimler" element={<NotificationsPage />} />
+                                        <Route path="/profil/:kullaniciAdi" element={<ProfilePage />} />
+                                        <Route path="/kesfet" element={<ExplorePage />} />
+                                        <Route path="/ayarlar" element={<SettingsPage />} />
+                                        <Route path="/kutuphane" element={<LibraryPage />} />
+                                        <Route path="/listelerim" element={<ListsPage />} />
+                                        <Route path="/liste/:id/duzenle" element={<ListEditPage />} />
+                                        <Route path="/begeniler" element={<LikesPage />} />
+                                        <Route path="/icerik/:tip/:id" element={<DetailPage />} />
+                                        <Route path="/icerik/:id" element={<DetailPage />} />
+                                    </Route>
 
-                                {/* Fallback */}
-                                <Route path="*" element={<Navigate to="/" replace />} />
-                            </Routes>
-                        </AuthModalProvider>
-                    </BrowserRouter>
-                </AuthProvider>
+                                    {/* Fallback */}
+                                    <Route path="*" element={<Navigate to="/" replace />} />
+                                </Routes>
+                            </AuthModalProvider>
+                        </BrowserRouter>
+                    </AuthProvider>
+                </ThemeProvider>
             </MantineProvider>
         </QueryClientProvider>
     );

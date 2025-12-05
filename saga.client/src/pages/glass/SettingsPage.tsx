@@ -1,121 +1,144 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  User,
-  Mail,
-  Lock,
-  LogOut,
-  Trash2,
-  Bell,
-  Eye,
-  EyeOff,
-  Save,
-  Loader2,
-  Camera,
-  AlertTriangle,
-  Check,
-  ChevronRight,
-  Upload,
-} from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { kullaniciApi, ayarlarApi, authApi } from '../../services/api';
 import { supabase } from '../../services/supabase';
+import './SettingsPage.css';
 
 // ============================================
-// NEBULA UI COMPONENTS
+// ICONS
 // ============================================
+const CrownIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M2 4l3 12h14l3-12-6 7-4-7-4 7-6-7zm3 16h14" />
+  </svg>
+);
 
-function GlassCard({ children, className = '' }: { children: React.ReactNode; className?: string }) {
-  return (
-    <div className={`p-5 rounded-2xl bg-[rgba(20,20,35,0.65)] backdrop-blur-xl border border-[rgba(255,255,255,0.08)] shadow-lg ${className}`}>
-      {children}
-    </div>
-  );
-}
+const UserIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+    <circle cx="12" cy="7" r="4" />
+  </svg>
+);
 
-function GlassPanel({ children, className = '', padding = 'md' }: { children: React.ReactNode; className?: string; padding?: 'sm' | 'md' | 'lg' }) {
-  const paddings = { sm: 'p-3', md: 'p-5', lg: 'p-6' };
-  return (
-    <div className={`rounded-2xl bg-[rgba(30,30,50,0.5)] backdrop-blur-xl border border-[rgba(255,255,255,0.06)] ${paddings[padding]} ${className}`}>
-      {children}
-    </div>
-  );
-}
+const BellIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+    <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+  </svg>
+);
 
-function Button({ 
-  children, 
-  variant = 'primary',
-  size = 'md',
-  className = '',
-  disabled = false,
-  onClick 
-}: { 
-  children: React.ReactNode; 
-  variant?: 'primary' | 'secondary' | 'ghost' | 'success' | 'danger';
-  size?: 'sm' | 'md' | 'lg' | 'icon';
-  className?: string;
-  disabled?: boolean;
-  onClick?: (e?: React.MouseEvent) => void;
-}) {
-  const baseStyles = 'inline-flex items-center justify-center font-semibold rounded-xl transition-all duration-200 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed';
-  const variantStyles = {
-    primary: 'bg-gradient-to-r from-[#6C5CE7] to-[#a29bfe] text-white hover:shadow-lg hover:shadow-[#6C5CE7]/25',
-    secondary: 'bg-[rgba(255,255,255,0.08)] text-white border border-[rgba(255,255,255,0.1)] hover:bg-[rgba(255,255,255,0.12)]',
-    ghost: 'bg-transparent text-[rgba(255,255,255,0.7)] hover:text-white hover:bg-[rgba(255,255,255,0.05)]',
-    success: 'bg-[#00b894] text-white hover:bg-[#00b894]/80',
-    danger: 'bg-[#fd79a8] text-white hover:bg-[#fd79a8]/80'
-  };
-  const sizeStyles = {
-    sm: 'px-3 py-1.5 text-xs gap-1',
-    md: 'px-4 py-2 text-sm gap-2',
-    lg: 'px-6 py-3 text-base gap-2',
-    icon: 'w-10 h-10 p-0'
-  };
+const LockIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+  </svg>
+);
 
-  return (
-    <button onClick={onClick} disabled={disabled} className={`${baseStyles} ${variantStyles[variant]} ${sizeStyles[size]} ${className}`}>
-      {children}
-    </button>
-  );
-}
+const MoonIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+  </svg>
+);
 
-type SettingsTab = 'profil' | 'guvenlik' | 'bildirimler' | 'hesap';
+const GlobeIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <circle cx="12" cy="12" r="10" />
+    <line x1="2" y1="12" x2="22" y2="12" />
+    <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+  </svg>
+);
 
+const DownloadIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+    <polyline points="7 10 12 15 17 10" />
+    <line x1="12" y1="15" x2="12" y2="3" />
+  </svg>
+);
+
+const HelpIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <circle cx="12" cy="12" r="10" />
+    <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+    <line x1="12" y1="17" x2="12.01" y2="17" />
+  </svg>
+);
+
+const LogOutIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+    <polyline points="16 17 21 12 16 7" />
+    <line x1="21" y1="12" x2="9" y2="12" />
+  </svg>
+);
+
+const ChevronRightIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <polyline points="9 18 15 12 9 6" />
+  </svg>
+);
+
+const ChevronLeftIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <polyline points="15 18 9 12 15 6" />
+  </svg>
+);
+
+const CameraIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+    <circle cx="12" cy="13" r="4" />
+  </svg>
+);
+
+const TrashIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <polyline points="3 6 5 6 21 6" />
+    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+  </svg>
+);
+
+const ShieldIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+  </svg>
+);
+
+// ============================================
+// TYPES
+// ============================================
+type SettingsTab = 'main' | 'profil' | 'bildirimler' | 'gizlilik';
+
+// ============================================
+// MAIN COMPONENT
+// ============================================
 export default function SettingsPage() {
   const navigate = useNavigate();
   const { user, signOut } = useAuth();
-  const [activeTab, setActiveTab] = useState<SettingsTab>('profil');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Profil state
+  // Tab state
+  const [activeTab, setActiveTab] = useState<SettingsTab>('main');
+
+  // Preferences state
+  const [darkMode, setDarkMode] = useState(true);
+  
+  // Modal state
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  
+  // Profile edit state
   const [profilForm, setProfilForm] = useState({
-    goruntulemeAdi: user?.goruntulemeAdi || user?.kullaniciAdi || '',
+    goruntulemeAdi: '',
     biyografi: '',
-    avatarUrl: user?.profilResmi || '',
+    avatarUrl: '',
   });
   const [profilLoading, setProfilLoading] = useState(false);
-  const [profilSuccess, setProfilSuccess] = useState(false);
-  
-  // Avatar upload state
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [profilSaved, setProfilSaved] = useState(false);
   const [avatarUploading, setAvatarUploading] = useState(false);
-  const [avatarError, setAvatarError] = useState('');
-
-  // Şifre state
-  const [sifreForm, setSifreForm] = useState({
-    eskiSifre: '',
-    yeniSifre: '',
-    yeniSifreTekrar: '',
-  });
-  const [sifreLoading, setSifreLoading] = useState(false);
-  const [sifreError, setSifreError] = useState('');
-  const [sifreSuccess, setSifreSuccess] = useState(false);
-  const [showPasswords, setShowPasswords] = useState({
-    eski: false,
-    yeni: false,
-    tekrar: false,
-  });
-
-  // Bildirim state - API'den yüklenecek
+  
+  // Bildirim ayarları state
   const [bildirimAyarlari, setBildirimAyarlari] = useState({
     yeniTakipci: true,
     yorumlar: true,
@@ -123,49 +146,151 @@ export default function SettingsPage() {
     oneriler: false,
     emailBildirimleri: false,
   });
-  const [ayarlarLoading, setAyarlarLoading] = useState(false);
-  const [ayarlarSaving, setAyarlarSaving] = useState(false);
+  const [bildirimLoading, setBildirimLoading] = useState(false);
+  const [bildirimSaving, setBildirimSaving] = useState(false);
 
-  // Modal state
-  const [showLogoutModal, setShowLogoutModal] = useState(false);
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  // Gizlilik ayarları state
+  const [gizlilikAyarlari, setGizlilikAyarlari] = useState({
+    profilGizli: false,
+    aktiviteGizli: false,
+  });
+  const [gizlilikLoading, setGizlilikLoading] = useState(false);
+  const [gizlilikSaving, setGizlilikSaving] = useState(false);
   
-  // Ayarları API'den yükle
+  // Delete account state
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+
+  // Load profil data
   useEffect(() => {
-    const loadAyarlar = async () => {
-      if (!user) return;
-      
-      setAyarlarLoading(true);
-      try {
-        const ayarlar = await ayarlarApi.getAyarlar();
-        setBildirimAyarlari({
-          yeniTakipci: ayarlar.bildirimYeniTakipci,
-          yorumlar: ayarlar.bildirimYorumlar,
-          begeniler: ayarlar.bildirimBegeniler,
-          oneriler: ayarlar.bildirimOneriler,
-          emailBildirimleri: ayarlar.bildirimEmail,
-        });
-      } catch (err) {
-        console.error('Ayarlar yüklenirken hata:', err);
-      } finally {
-        setAyarlarLoading(false);
-      }
-    };
-    
-    loadAyarlar();
-  }, [user]);
-  
-  // Bildirim ayarlarını güncelle
-  const handleBildirimToggle = async (key: string) => {
-    const newValue = !bildirimAyarlari[key as keyof typeof bildirimAyarlari];
-    setBildirimAyarlari({
-      ...bildirimAyarlari,
-      [key]: newValue,
-    });
-    
-    setAyarlarSaving(true);
+    if (activeTab === 'profil' && user) {
+      loadProfilData();
+    }
+  }, [activeTab, user]);
+
+  // Load bildirim ayarları
+  useEffect(() => {
+    if (activeTab === 'bildirimler' && user) {
+      loadBildirimAyarlari();
+    }
+  }, [activeTab, user]);
+
+  // Load gizlilik ayarları
+  useEffect(() => {
+    if (activeTab === 'gizlilik' && user) {
+      loadGizlilikAyarlari();
+    }
+  }, [activeTab, user]);
+
+  const loadProfilData = async () => {
+    if (!user) return;
     try {
-      // API key mapping
+      const profil = await kullaniciApi.getProfil(user.kullaniciAdi);
+      setProfilForm({
+        goruntulemeAdi: profil.goruntulemeAdi || '',
+        biyografi: profil.biyografi || '',
+        avatarUrl: profil.avatarUrl || '',
+      });
+    } catch (err) {
+      console.error('Profil yüklenemedi:', err);
+    }
+  };
+
+  const loadBildirimAyarlari = async () => {
+    setBildirimLoading(true);
+    try {
+      const ayarlar = await ayarlarApi.getAyarlar();
+      setBildirimAyarlari({
+        yeniTakipci: ayarlar.bildirimYeniTakipci,
+        yorumlar: ayarlar.bildirimYorumlar,
+        begeniler: ayarlar.bildirimBegeniler,
+        oneriler: ayarlar.bildirimOneriler,
+        emailBildirimleri: ayarlar.bildirimEmail,
+      });
+    } catch (err) {
+      console.error('Bildirim ayarları yüklenemedi:', err);
+    } finally {
+      setBildirimLoading(false);
+    }
+  };
+
+  const loadGizlilikAyarlari = async () => {
+    setGizlilikLoading(true);
+    try {
+      const ayarlar = await ayarlarApi.getAyarlar();
+      setGizlilikAyarlari({
+        profilGizli: ayarlar.profilGizli || false,
+        aktiviteGizli: ayarlar.aktiviteGizli || false,
+      });
+    } catch (err) {
+      console.error('Gizlilik ayarları yüklenemedi:', err);
+    } finally {
+      setGizlilikLoading(false);
+    }
+  };
+
+  // Avatar upload
+  const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !user) return;
+
+    if (file.size > 2 * 1024 * 1024) {
+      alert('Dosya boyutu 2MB\'dan küçük olmalıdır.');
+      return;
+    }
+
+    setAvatarUploading(true);
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${user.id}-${Date.now()}.${fileExt}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(fileName, file, { cacheControl: '3600', upsert: true });
+
+      if (uploadError) throw uploadError;
+
+      const { data: publicUrlData } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(fileName);
+
+      setProfilForm({ ...profilForm, avatarUrl: publicUrlData.publicUrl });
+    } catch (err) {
+      console.error('Avatar yükleme hatası:', err);
+      alert('Avatar yüklenirken bir hata oluştu.');
+    } finally {
+      setAvatarUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  // Save profile
+  const handleSaveProfile = async () => {
+    setProfilLoading(true);
+    setProfilSaved(false);
+    try {
+      await kullaniciApi.updateProfil({
+        goruntulemeAdi: profilForm.goruntulemeAdi || undefined,
+        biyografi: profilForm.biyografi || undefined,
+        avatarUrl: profilForm.avatarUrl || undefined,
+      });
+      setProfilSaved(true);
+      setTimeout(() => setProfilSaved(false), 3000);
+    } catch (err) {
+      console.error('Profil güncelleme hatası:', err);
+      alert('Profil güncellenirken bir hata oluştu.');
+    } finally {
+      setProfilLoading(false);
+    }
+  };
+
+  // Toggle bildirim ayarı
+  const handleBildirimToggle = async (key: keyof typeof bildirimAyarlari) => {
+    const newValue = !bildirimAyarlari[key];
+    setBildirimAyarlari({ ...bildirimAyarlari, [key]: newValue });
+    
+    setBildirimSaving(true);
+    try {
       const apiKeyMap: Record<string, string> = {
         yeniTakipci: 'bildirimYeniTakipci',
         yorumlar: 'bildirimYorumlar',
@@ -173,588 +298,507 @@ export default function SettingsPage() {
         oneriler: 'bildirimOneriler',
         emailBildirimleri: 'bildirimEmail',
       };
-      
       await ayarlarApi.updateBildirimler({ [apiKeyMap[key]]: newValue });
     } catch (err) {
-      console.error('Bildirim ayarı güncellenirken hata:', err);
-      // Hata durumunda eski değeri geri yükle
-      setBildirimAyarlari({
-        ...bildirimAyarlari,
-        [key]: !newValue,
-      });
+      console.error('Bildirim ayarı güncellenemedi:', err);
+      setBildirimAyarlari({ ...bildirimAyarlari, [key]: !newValue });
     } finally {
-      setAyarlarSaving(false);
+      setBildirimSaving(false);
     }
   };
 
-  // Avatar yükleme fonksiyonu
-  const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file || !user) return;
-
-    // Dosya boyutu kontrolü (max 2MB)
-    if (file.size > 2 * 1024 * 1024) {
-      setAvatarError('Dosya boyutu 2MB\'dan küçük olmalıdır.');
-      return;
-    }
-
-    // Dosya türü kontrolü
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-    if (!allowedTypes.includes(file.type)) {
-      setAvatarError('Sadece JPEG, PNG, GIF veya WEBP dosyaları yüklenebilir.');
-      return;
-    }
-
-    setAvatarUploading(true);
-    setAvatarError('');
-
+  // Toggle gizlilik ayarı
+  const handleGizlilikToggle = async (key: keyof typeof gizlilikAyarlari) => {
+    const newValue = !gizlilikAyarlari[key];
+    setGizlilikAyarlari({ ...gizlilikAyarlari, [key]: newValue });
+    
+    setGizlilikSaving(true);
     try {
-      // Dosya adını oluştur (userId + timestamp)
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${user.id}-${Date.now()}.${fileExt}`;
-      // Bucket adı 'avatars', dosya doğrudan root'a yüklenir
-      const filePath = fileName;
-
-      // Supabase Storage'a yükle
-      const { error: uploadError } = await supabase.storage
-        .from('avatars')
-        .upload(filePath, file, {
-          cacheControl: '3600',
-          upsert: true
-        });
-
-      if (uploadError) {
-        console.error('Upload error:', uploadError);
-        throw new Error('Dosya yüklenirken bir hata oluştu.');
-      }
-
-      // Public URL'yi al
-      const { data: publicUrlData } = supabase.storage
-        .from('avatars')
-        .getPublicUrl(filePath);
-
-      const avatarUrl = publicUrlData.publicUrl;
-
-      // State'i güncelle
-      setProfilForm({ ...profilForm, avatarUrl });
-
-      // Backend'e de kaydet
-      await kullaniciApi.updateProfil({ avatarUrl });
-      
-      setProfilSuccess(true);
-      setTimeout(() => setProfilSuccess(false), 3000);
-    } catch (err: unknown) {
-      console.error('Avatar yükleme hatası:', err);
-      const errorMessage = err instanceof Error ? err.message : 'Avatar yüklenirken bir hata oluştu.';
-      setAvatarError(errorMessage);
-    } finally {
-      setAvatarUploading(false);
-      // Input'u temizle
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
-    }
-  };
-
-  // Profil güncelle
-  const handleUpdateProfil = async () => {
-    setProfilLoading(true);
-    setProfilSuccess(false);
-    try {
-      const updateData: { goruntulemeAdi?: string; biyografi?: string; avatarUrl?: string } = {
-        goruntulemeAdi: profilForm.goruntulemeAdi || undefined,
-        biyografi: profilForm.biyografi || undefined,
-      };
-      // Sadece geçerli URL varsa gönder (boş string URL validation hatası verir)
-      if (profilForm.avatarUrl && profilForm.avatarUrl.trim()) {
-        updateData.avatarUrl = profilForm.avatarUrl;
-      }
-      await kullaniciApi.updateProfil(updateData);
-      setProfilSuccess(true);
-      setTimeout(() => setProfilSuccess(false), 3000);
+      await ayarlarApi.updateGizlilik({ [key]: newValue });
     } catch (err) {
-      console.error('Profil güncelleme hatası:', err);
+      console.error('Gizlilik ayarı güncellenemedi:', err);
+      setGizlilikAyarlari({ ...gizlilikAyarlari, [key]: !newValue });
     } finally {
-      setProfilLoading(false);
+      setGizlilikSaving(false);
     }
   };
 
-  // Şifre değiştir
-  const handleChangePassword = async () => {
-    setSifreError('');
-    setSifreSuccess(false);
-
-    if (sifreForm.yeniSifre !== sifreForm.yeniSifreTekrar) {
-      setSifreError('Yeni şifreler eşleşmiyor.');
-      return;
-    }
-
-    if (sifreForm.yeniSifre.length < 6) {
-      setSifreError('Şifre en az 6 karakter olmalıdır.');
-      return;
-    }
-
-    setSifreLoading(true);
-    try {
-      const { error } = await supabase.auth.updateUser({
-        password: sifreForm.yeniSifre,
-      });
-
-      if (error) throw error;
-
-      setSifreSuccess(true);
-      setSifreForm({ eskiSifre: '', yeniSifre: '', yeniSifreTekrar: '' });
-      setTimeout(() => setSifreSuccess(false), 3000);
-    } catch (err: any) {
-      setSifreError(err.message || 'Şifre değiştirirken bir hata oluştu.');
-    } finally {
-      setSifreLoading(false);
-    }
-  };
-
-  // Çıkış yap
+  // Logout
   const handleLogout = async () => {
     await signOut();
-    navigate('/');
+    navigate('/giris');
   };
 
-  // Hesap sil
-  const [deleteLoading, setDeleteLoading] = useState(false);
-  const [deleteError, setDeleteError] = useState('');
-  
+  // Delete account
   const handleDeleteAccount = async () => {
     setDeleteLoading(true);
     setDeleteError('');
-    
     try {
-      // Backend'de hesabı sil (soft delete)
       await authApi.deleteAccount();
-      
-      // Supabase oturumunu kapat
       await signOut();
-      
-      // Ana sayfaya yönlendir
       navigate('/');
     } catch (err: any) {
-      console.error('Hesap silme hatası:', err);
       setDeleteError(err.response?.data?.message || 'Hesap silinirken bir hata oluştu.');
     } finally {
       setDeleteLoading(false);
     }
   };
 
-  const tabs = [
-    { id: 'profil' as SettingsTab, label: 'Profil', icon: User },
-    { id: 'guvenlik' as SettingsTab, label: 'Güvenlik', icon: Lock },
-    { id: 'bildirimler' as SettingsTab, label: 'Bildirimler', icon: Bell },
-    { id: 'hesap' as SettingsTab, label: 'Hesap', icon: AlertTriangle },
-  ];
-
   if (!user) {
     return (
-      <div className="max-w-4xl mx-auto">
-        <GlassCard className="text-center py-12">
-          <User size={48} className="mx-auto mb-4 text-[#8E8E93]" />
-          <h2 className="text-xl font-semibold text-white mb-2">Giriş Yapmalısınız</h2>
-          <p className="text-[#8E8E93] mb-6">Ayarları görüntülemek için giriş yapın.</p>
-          <Button onClick={() => navigate('/giris')}>Giriş Yap</Button>
-        </GlassCard>
+      <div className="settings-page">
+        <div className="settings-empty">
+          <UserIcon />
+          <h2>Giriş Yapmalısınız</h2>
+          <p>Ayarları görüntülemek için giriş yapın.</p>
+          <button className="settings-login-btn" onClick={() => navigate('/giris')}>
+            Giriş Yap
+          </button>
+        </div>
       </div>
     );
   }
 
-  return (
-    <div className="max-w-4xl mx-auto">
-      <h1 className="text-2xl font-bold text-white mb-6">Ayarlar</h1>
+  // ============================================
+  // RENDER FUNCTIONS
+  // ============================================
 
-      <div className="flex flex-col md:flex-row gap-6">
-        {/* Sidebar */}
-        <div className="md:w-64 flex-shrink-0">
-          <GlassCard className="p-2">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left transition-colors ${
-                  activeTab === tab.id
-                    ? 'bg-[#6C5CE7] text-white'
-                    : 'text-[#8E8E93] hover:bg-white/5'
-                }`}
-              >
-                <tab.icon size={20} />
-                <span className="font-medium">{tab.label}</span>
-                <ChevronRight size={16} className="ml-auto opacity-50" />
-              </button>
-            ))}
-          </GlassCard>
+  const renderMainTab = () => (
+    <>
+      <div className="settings-page-header">
+        <h1 className="settings-page-title">Hesap</h1>
+      </div>
+
+      <div className="settings-groups">
+        {/* Group 1: Premium & Profile */}
+        <div className="settings-group">
+          <div className="settings-item" onClick={() => alert('Premium özelliği yakında!')}>
+            <div className="settings-icon gold">
+              <CrownIcon />
+            </div>
+            <div className="settings-item-content">
+              <div className="settings-label">SAGA Premium</div>
+              <div className="settings-desc">Reklamsız deneyim, özel özellikler</div>
+            </div>
+            <span className="settings-arrow">
+              <ChevronRightIcon />
+            </span>
+          </div>
+
+          <div className="settings-item" onClick={() => setActiveTab('profil')}>
+            <div className="settings-icon">
+              <UserIcon />
+            </div>
+            <div className="settings-item-content">
+              <div className="settings-label">Profili Düzenle</div>
+              <div className="settings-desc">Ad, bio, fotoğraf</div>
+            </div>
+            <span className="settings-arrow">
+              <ChevronRightIcon />
+            </span>
+          </div>
+
+          <div className="settings-item" onClick={() => setActiveTab('bildirimler')}>
+            <div className="settings-icon blue">
+              <BellIcon />
+            </div>
+            <div className="settings-item-content">
+              <div className="settings-label">Bildirimler</div>
+              <div className="settings-desc">Push bildirimleri, e-posta</div>
+            </div>
+            <span className="settings-arrow">
+              <ChevronRightIcon />
+            </span>
+          </div>
+
+          <div className="settings-item" onClick={() => setActiveTab('gizlilik')}>
+            <div className="settings-icon">
+              <LockIcon />
+            </div>
+            <div className="settings-item-content">
+              <div className="settings-label">Gizlilik</div>
+              <div className="settings-desc">Profil görünürlüğü, engellenenler</div>
+            </div>
+            <span className="settings-arrow">
+              <ChevronRightIcon />
+            </span>
+          </div>
         </div>
 
-        {/* Content */}
-        <div className="flex-1">
-          {/* Profil Tab */}
-          {activeTab === 'profil' && (
-            <GlassCard>
-              <h2 className="text-xl font-semibold text-white mb-6">Profil Bilgileri</h2>
-
-              {/* Avatar */}
-              <div className="flex items-center gap-4 mb-6">
-                <div className="relative">
-                  <div className="w-20 h-20 rounded-full bg-gradient-to-br from-[#6C5CE7] to-[#00CEC9] flex items-center justify-center overflow-hidden">
-                    {avatarUploading ? (
-                      <Loader2 size={24} className="text-white animate-spin" />
-                    ) : profilForm.avatarUrl ? (
-                      <img
-                        src={profilForm.avatarUrl}
-                        alt="Avatar"
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <span className="text-white text-2xl font-bold">
-                        {user.kullaniciAdi?.charAt(0).toUpperCase()}
-                      </span>
-                    )}
-                  </div>
-                  <button 
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={avatarUploading}
-                    className="absolute bottom-0 right-0 p-1.5 rounded-full bg-[#6C5CE7] text-white hover:bg-[#5B4CD9] transition-colors disabled:opacity-50"
-                    title="Fotoğraf Yükle"
-                  >
-                    {avatarUploading ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} />}
-                  </button>
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    onChange={handleAvatarUpload}
-                    accept="image/jpeg,image/png,image/gif,image/webp"
-                    className="hidden"
-                  />
-                </div>
-                <div className="flex-1">
-                  <p className="text-white font-medium">{user.kullaniciAdi}</p>
-                  <p className="text-sm text-[#8E8E93]">{user.email}</p>
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={avatarUploading}
-                    className="mt-2 text-xs text-[#6C5CE7] hover:text-[#a29bfe] flex items-center gap-1 transition-colors disabled:opacity-50"
-                  >
-                    <Upload size={12} />
-                    {avatarUploading ? 'Yükleniyor...' : 'Fotoğraf Yükle'}
-                  </button>
-                  {avatarError && (
-                    <p className="text-xs text-red-400 mt-1">{avatarError}</p>
-                  )}
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                {/* Kullanıcı Adı (readonly) */}
-                <div>
-                  <label className="block text-sm text-[#8E8E93] mb-2">Kullanıcı Adı</label>
-                  <div className="relative">
-                    <User size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-[#636366]" />
-                    <input
-                      type="text"
-                      value={user.kullaniciAdi}
-                      disabled
-                      className="w-full pl-12 pr-4 py-3 rounded-xl bg-white/5 border border-white/10 text-[#636366] cursor-not-allowed"
-                    />
-                  </div>
-                  <p className="text-xs text-[#636366] mt-1">Kullanıcı adı değiştirilemez.</p>
-                </div>
-
-                {/* E-posta (readonly) */}
-                <div>
-                  <label className="block text-sm text-[#8E8E93] mb-2">E-posta</label>
-                  <div className="relative">
-                    <Mail size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-[#636366]" />
-                    <input
-                      type="email"
-                      value={user.email}
-                      disabled
-                      className="w-full pl-12 pr-4 py-3 rounded-xl bg-white/5 border border-white/10 text-[#636366] cursor-not-allowed"
-                    />
-                  </div>
-                </div>
-
-                {/* Görüntüleme Adı */}
-                <div>
-                  <label className="block text-sm text-[#8E8E93] mb-2">Görüntüleme Adı</label>
-                  <input
-                    type="text"
-                    value={profilForm.goruntulemeAdi}
-                    onChange={(e) => setProfilForm({ ...profilForm, goruntulemeAdi: e.target.value })}
-                    className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-[#636366] focus:outline-none focus:border-[#6C5CE7]"
-                    placeholder="Görüntüleme adınız"
-                  />
-                </div>
-
-                {/* Biyografi */}
-                <div>
-                  <label className="block text-sm text-[#8E8E93] mb-2">Biyografi</label>
-                  <textarea
-                    value={profilForm.biyografi}
-                    onChange={(e) => setProfilForm({ ...profilForm, biyografi: e.target.value })}
-                    className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-[#636366] focus:outline-none focus:border-[#6C5CE7] resize-none h-24"
-                    placeholder="Kendiniz hakkında birkaç şey yazın..."
-                  />
-                </div>
-
-                {/* Kaydet */}
-                <div className="flex items-center gap-3 pt-4">
-                  <Button onClick={handleUpdateProfil} disabled={profilLoading}>
-                    {profilLoading ? (
-                      <Loader2 size={16} className="animate-spin mr-2" />
-                    ) : profilSuccess ? (
-                      <Check size={16} className="mr-2" />
-                    ) : (
-                      <Save size={16} className="mr-2" />
-                    )}
-                    {profilSuccess ? 'Kaydedildi!' : 'Değişiklikleri Kaydet'}
-                  </Button>
-                </div>
-              </div>
-            </GlassCard>
-          )}
-
-          {/* Güvenlik Tab */}
-          {activeTab === 'guvenlik' && (
-            <GlassCard>
-              <h2 className="text-xl font-semibold text-white mb-6">Şifre Değiştir</h2>
-
-              <div className="space-y-4">
-                {/* Yeni Şifre */}
-                <div>
-                  <label className="block text-sm text-[#8E8E93] mb-2">Yeni Şifre</label>
-                  <div className="relative">
-                    <Lock size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-[#636366]" />
-                    <input
-                      type={showPasswords.yeni ? 'text' : 'password'}
-                      value={sifreForm.yeniSifre}
-                      onChange={(e) => setSifreForm({ ...sifreForm, yeniSifre: e.target.value })}
-                      className="w-full pl-12 pr-12 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-[#636366] focus:outline-none focus:border-[#6C5CE7]"
-                      placeholder="En az 6 karakter"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPasswords({ ...showPasswords, yeni: !showPasswords.yeni })}
-                      className="absolute right-4 top-1/2 -translate-y-1/2 text-[#636366] hover:text-white"
-                    >
-                      {showPasswords.yeni ? <EyeOff size={18} /> : <Eye size={18} />}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Yeni Şifre Tekrar */}
-                <div>
-                  <label className="block text-sm text-[#8E8E93] mb-2">Yeni Şifre (Tekrar)</label>
-                  <div className="relative">
-                    <Lock size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-[#636366]" />
-                    <input
-                      type={showPasswords.tekrar ? 'text' : 'password'}
-                      value={sifreForm.yeniSifreTekrar}
-                      onChange={(e) => setSifreForm({ ...sifreForm, yeniSifreTekrar: e.target.value })}
-                      className="w-full pl-12 pr-12 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-[#636366] focus:outline-none focus:border-[#6C5CE7]"
-                      placeholder="Şifreyi tekrar girin"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPasswords({ ...showPasswords, tekrar: !showPasswords.tekrar })}
-                      className="absolute right-4 top-1/2 -translate-y-1/2 text-[#636366] hover:text-white"
-                    >
-                      {showPasswords.tekrar ? <EyeOff size={18} /> : <Eye size={18} />}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Hata/Başarı mesajı */}
-                {sifreError && (
-                  <div className="p-3 rounded-xl bg-[#fd79a8]/20 text-[#fd79a8] text-sm">
-                    {sifreError}
-                  </div>
-                )}
-                {sifreSuccess && (
-                  <div className="p-3 rounded-xl bg-[#00b894]/20 text-[#00b894] text-sm">
-                    Şifreniz başarıyla değiştirildi!
-                  </div>
-                )}
-
-                {/* Kaydet */}
-                <div className="pt-4">
-                  <Button
-                    onClick={handleChangePassword}
-                    disabled={sifreLoading || !sifreForm.yeniSifre || !sifreForm.yeniSifreTekrar}
-                  >
-                    {sifreLoading ? (
-                      <Loader2 size={16} className="animate-spin mr-2" />
-                    ) : (
-                      <Lock size={16} className="mr-2" />
-                    )}
-                    Şifreyi Değiştir
-                  </Button>
-                </div>
-              </div>
-            </GlassCard>
-          )}
-
-          {/* Bildirimler Tab */}
-          {activeTab === 'bildirimler' && (
-            <GlassCard>
-              <h2 className="text-xl font-semibold text-white mb-6">Bildirim Tercihleri</h2>
-              
-              {ayarlarLoading ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 size={24} className="animate-spin text-[#6C5CE7]" />
-                </div>
-              ) : (
-              <div className="space-y-4">
-                {[
-                  { key: 'yeniTakipci', label: 'Yeni takipçi bildirimleri', desc: 'Biri sizi takip ettiğinde bildirim alın' },
-                  { key: 'yorumlar', label: 'Yorum bildirimleri', desc: 'Yorumlarınıza yanıt geldiğinde bildirim alın' },
-                  { key: 'begeniler', label: 'Beğeni bildirimleri', desc: 'İçeriğiniz beğenildiğinde bildirim alın' },
-                  { key: 'oneriler', label: 'Öneri bildirimleri', desc: 'Size özel içerik önerileri alın' },
-                  { key: 'emailBildirimleri', label: 'E-posta bildirimleri', desc: 'Önemli güncellemeleri e-posta ile alın' },
-                ].map((item) => (
-                  <div
-                    key={item.key}
-                    className="flex items-center justify-between p-4 rounded-xl bg-white/5"
-                  >
-                    <div>
-                      <p className="text-white font-medium">{item.label}</p>
-                      <p className="text-sm text-[#8E8E93]">{item.desc}</p>
-                    </div>
-                    <button
-                      onClick={() => handleBildirimToggle(item.key)}
-                      disabled={ayarlarSaving}
-                      className={`w-12 h-7 rounded-full transition-colors relative disabled:opacity-50 ${
-                        bildirimAyarlari[item.key as keyof typeof bildirimAyarlari]
-                          ? 'bg-[#00b894]'
-                          : 'bg-[#636366]'
-                      }`}
-                    >
-                      <span
-                        className={`absolute top-1 w-5 h-5 rounded-full bg-white transition-transform ${
-                          bildirimAyarlari[item.key as keyof typeof bildirimAyarlari]
-                            ? 'translate-x-6'
-                            : 'translate-x-1'
-                        }`}
-                      />
-                    </button>
-                  </div>
-                ))}
-              </div>
-              )}
-            </GlassCard>
-          )}
-
-          {/* Hesap Tab */}
-          {activeTab === 'hesap' && (
-            <div className="space-y-6">
-              {/* Çıkış Yap */}
-              <GlassCard>
-                <h2 className="text-xl font-semibold text-white mb-4">Oturum</h2>
-                <p className="text-[#8E8E93] mb-4">
-                  Hesabınızdan çıkış yapın. Tekrar giriş yapana kadar içerik ekleyemez ve yorum yapamazsınız.
-                </p>
-                <Button variant="secondary" onClick={() => setShowLogoutModal(true)}>
-                  <LogOut size={16} className="mr-2" />
-                  Çıkış Yap
-                </Button>
-              </GlassCard>
-
-              {/* Tehlikeli Bölge */}
-              <GlassPanel className="border border-[#fd79a8]/30">
-                <h2 className="text-xl font-semibold text-[#fd79a8] mb-4">Tehlikeli Bölge</h2>
-                <p className="text-[#8E8E93] mb-4">
-                  Hesabınızı sildiğinizde tüm verileriniz kalıcı olarak silinecektir. Bu işlem geri alınamaz.
-                </p>
-                <Button
-                  variant="danger"
-                  onClick={() => setShowDeleteModal(true)}
-                >
-                  <Trash2 size={16} className="mr-2" />
-                  Hesabı Sil
-                </Button>
-              </GlassPanel>
+        {/* Group 2: Preferences */}
+        <div className="settings-group">
+          <div className="settings-item" onClick={() => setDarkMode(!darkMode)}>
+            <div className="settings-icon">
+              <MoonIcon />
             </div>
-          )}
+            <div className="settings-item-content">
+              <div className="settings-label">Karanlık Mod</div>
+              <div className="settings-desc">Sistem ayarını kullan</div>
+            </div>
+            <div className={`settings-toggle ${darkMode ? 'active' : ''}`} />
+          </div>
+
+          <div className="settings-item" onClick={() => alert('Dil ayarları yakında!')}>
+            <div className="settings-icon">
+              <GlobeIcon />
+            </div>
+            <div className="settings-item-content">
+              <div className="settings-label">Dil</div>
+              <div className="settings-desc">Türkçe</div>
+            </div>
+            <span className="settings-arrow">
+              <ChevronRightIcon />
+            </span>
+          </div>
+
+          <div className="settings-item" onClick={() => alert('Veri indirme yakında!')}>
+            <div className="settings-icon">
+              <DownloadIcon />
+            </div>
+            <div className="settings-item-content">
+              <div className="settings-label">Verilerimi İndir</div>
+              <div className="settings-desc">Tüm izleme geçmişi ve listeler</div>
+            </div>
+            <span className="settings-arrow">
+              <ChevronRightIcon />
+            </span>
+          </div>
+        </div>
+
+        {/* Group 3: Support & Logout */}
+        <div className="settings-group">
+          <div className="settings-item" onClick={() => alert('Yardım & Destek yakında!')}>
+            <div className="settings-icon">
+              <HelpIcon />
+            </div>
+            <div className="settings-item-content">
+              <div className="settings-label">Yardım & Destek</div>
+              <div className="settings-desc">SSS, iletişim</div>
+            </div>
+            <span className="settings-arrow">
+              <ChevronRightIcon />
+            </span>
+          </div>
+
+          <div className="settings-item logout" onClick={() => setShowLogoutModal(true)}>
+            <div className="settings-icon red">
+              <LogOutIcon />
+            </div>
+            <div className="settings-item-content">
+              <div className="settings-label red">Çıkış Yap</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Group 4: Danger Zone */}
+        <div className="settings-group danger">
+          <div className="settings-item" onClick={() => setShowDeleteModal(true)}>
+            <div className="settings-icon red">
+              <TrashIcon />
+            </div>
+            <div className="settings-item-content">
+              <div className="settings-label red">Hesabı Sil</div>
+              <div className="settings-desc">Bu işlem geri alınamaz</div>
+            </div>
+            <span className="settings-arrow">
+              <ChevronRightIcon />
+            </span>
+          </div>
         </div>
       </div>
 
-      {/* Çıkış Modal */}
-      {showLogoutModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <GlassCard className="w-full max-w-sm mx-4">
-            <div className="text-center">
-              <div className="w-16 h-16 rounded-full bg-[#f39c12]/20 flex items-center justify-center mx-auto mb-4">
-                <LogOut size={32} className="text-[#f39c12]" />
+      <div className="settings-footer">
+        <p>SAGA v1.0.0</p>
+        <p>© 2024 SAGA. Tüm hakları saklıdır.</p>
+      </div>
+    </>
+  );
+
+  const renderProfilTab = () => (
+    <>
+      <div className="settings-tab-header">
+        <button className="settings-back-btn" onClick={() => setActiveTab('main')}>
+          <ChevronLeftIcon />
+        </button>
+        <h1 className="settings-tab-title">Profili Düzenle</h1>
+        <div className="settings-tab-spacer" />
+      </div>
+
+      <div className="settings-tab-content">
+        {/* Avatar Section */}
+        <div className="profile-avatar-section">
+          <div className="profile-avatar-wrapper">
+            <div className="profile-avatar">
+              {profilForm.avatarUrl ? (
+                <img src={profilForm.avatarUrl} alt="Avatar" />
+              ) : (
+                <span className="avatar-letter">
+                  {(user.ad || user.kullaniciAdi).charAt(0).toUpperCase()}
+                </span>
+              )}
+            </div>
+            <button 
+              className="avatar-edit-btn"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={avatarUploading}
+            >
+              <CameraIcon />
+            </button>
+          </div>
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleAvatarUpload}
+            accept="image/jpeg,image/png,image/gif,image/webp"
+            style={{ display: 'none' }}
+          />
+          <span 
+            className="avatar-change-text"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            {avatarUploading ? 'Yükleniyor...' : 'Fotoğrafı Değiştir'}
+          </span>
+        </div>
+
+        {/* Form Fields */}
+        <div className="settings-form">
+          <div className="settings-field">
+            <label>İsim</label>
+            <input
+              type="text"
+              value={profilForm.goruntulemeAdi}
+              onChange={(e) => setProfilForm({ ...profilForm, goruntulemeAdi: e.target.value })}
+              placeholder="İsminiz"
+            />
+          </div>
+
+          <div className="settings-field">
+            <label>Kullanıcı Adı</label>
+            <input
+              type="text"
+              value={`@${user.kullaniciAdi}`}
+              disabled
+              className="disabled"
+            />
+            <span className="field-hint">Kullanıcı adı değiştirilemez</span>
+          </div>
+
+          <div className="settings-field">
+            <label>Bio</label>
+            <textarea
+              value={profilForm.biyografi}
+              onChange={(e) => setProfilForm({ ...profilForm, biyografi: e.target.value })}
+              placeholder="Kendinizden bahsedin..."
+              rows={3}
+            />
+          </div>
+        </div>
+
+        {/* Save Button */}
+        <button 
+          className={`settings-save-btn ${profilSaved ? 'saved' : ''}`}
+          onClick={handleSaveProfile}
+          disabled={profilLoading}
+        >
+          {profilLoading ? 'Kaydediliyor...' : profilSaved ? 'Kaydedildi!' : 'Kaydet'}
+        </button>
+      </div>
+    </>
+  );
+
+  const renderBildirimlerTab = () => (
+    <>
+      <div className="settings-tab-header">
+        <button className="settings-back-btn" onClick={() => setActiveTab('main')}>
+          <ChevronLeftIcon />
+        </button>
+        <h1 className="settings-tab-title">Bildirimler</h1>
+        <div className="settings-tab-spacer" />
+      </div>
+
+      <div className="settings-tab-content">
+        {bildirimLoading ? (
+          <div className="settings-loading">
+            <div className="loading-spinner" />
+            <span>Yükleniyor...</span>
+          </div>
+        ) : (
+          <div className="settings-groups">
+            <div className="settings-group">
+              <div className="settings-item" onClick={() => handleBildirimToggle('yeniTakipci')}>
+                <div className="settings-item-content">
+                  <div className="settings-label">Yeni takipçi</div>
+                  <div className="settings-desc">Biri sizi takip ettiğinde bildirim alın</div>
+                </div>
+                <div className={`settings-toggle ${bildirimAyarlari.yeniTakipci ? 'active' : ''}`} />
               </div>
-              <h3 className="text-xl font-semibold text-white mb-2">Çıkış Yap</h3>
-              <p className="text-[#8E8E93] mb-6">
-                Hesabınızdan çıkış yapmak istediğinize emin misiniz?
-              </p>
-              <div className="flex gap-3">
-                <Button variant="secondary" className="flex-1" onClick={() => setShowLogoutModal(false)}>
-                  İptal
-                </Button>
-                <Button variant="primary" className="flex-1" onClick={handleLogout}>
-                  Çıkış Yap
-                </Button>
+
+              <div className="settings-item" onClick={() => handleBildirimToggle('yorumlar')}>
+                <div className="settings-item-content">
+                  <div className="settings-label">Yorumlar</div>
+                  <div className="settings-desc">Yorumlarınıza yanıt geldiğinde</div>
+                </div>
+                <div className={`settings-toggle ${bildirimAyarlari.yorumlar ? 'active' : ''}`} />
+              </div>
+
+              <div className="settings-item" onClick={() => handleBildirimToggle('begeniler')}>
+                <div className="settings-item-content">
+                  <div className="settings-label">Beğeniler</div>
+                  <div className="settings-desc">İçeriğiniz beğenildiğinde</div>
+                </div>
+                <div className={`settings-toggle ${bildirimAyarlari.begeniler ? 'active' : ''}`} />
+              </div>
+
+              <div className="settings-item" onClick={() => handleBildirimToggle('oneriler')}>
+                <div className="settings-item-content">
+                  <div className="settings-label">Öneriler</div>
+                  <div className="settings-desc">Size özel içerik önerileri</div>
+                </div>
+                <div className={`settings-toggle ${bildirimAyarlari.oneriler ? 'active' : ''}`} />
               </div>
             </div>
-          </GlassCard>
+
+            <div className="settings-group">
+              <div className="settings-item" onClick={() => handleBildirimToggle('emailBildirimleri')}>
+                <div className="settings-item-content">
+                  <div className="settings-label">E-posta bildirimleri</div>
+                  <div className="settings-desc">Önemli güncellemeleri e-posta ile alın</div>
+                </div>
+                <div className={`settings-toggle ${bildirimAyarlari.emailBildirimleri ? 'active' : ''}`} />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {bildirimSaving && (
+          <div className="settings-saving-indicator">
+            Kaydediliyor...
+          </div>
+        )}
+      </div>
+    </>
+  );
+
+  const renderGizlilikTab = () => (
+    <>
+      <div className="settings-tab-header">
+        <button className="settings-back-btn" onClick={() => setActiveTab('main')}>
+          <ChevronLeftIcon />
+        </button>
+        <h1 className="settings-tab-title">Gizlilik</h1>
+        <div className="settings-tab-spacer" />
+      </div>
+
+      <div className="settings-tab-content">
+        {gizlilikLoading ? (
+          <div className="settings-loading">
+            <div className="loading-spinner" />
+            <span>Yükleniyor...</span>
+          </div>
+        ) : (
+          <div className="settings-groups">
+            <div className="settings-group">
+              <div className="settings-item" onClick={() => handleGizlilikToggle('profilGizli')}>
+                <div className="settings-icon">
+                  <UserIcon />
+                </div>
+                <div className="settings-item-content">
+                  <div className="settings-label">Gizli Profil</div>
+                  <div className="settings-desc">Sadece takipçileriniz profilinizi görebilir</div>
+                </div>
+                <div className={`settings-toggle ${gizlilikAyarlari.profilGizli ? 'active' : ''}`} />
+              </div>
+
+              <div className="settings-item" onClick={() => handleGizlilikToggle('aktiviteGizli')}>
+                <div className="settings-icon">
+                  <ShieldIcon />
+                </div>
+                <div className="settings-item-content">
+                  <div className="settings-label">Aktivite Gizliliği</div>
+                  <div className="settings-desc">Aktiviteleriniz akışta görünmesin</div>
+                </div>
+                <div className={`settings-toggle ${gizlilikAyarlari.aktiviteGizli ? 'active' : ''}`} />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {gizlilikSaving && (
+          <div className="settings-saving-indicator">
+            Kaydediliyor...
+          </div>
+        )}
+      </div>
+    </>
+  );
+
+  return (
+    <div className="settings-page">
+      <main className="settings-content">
+        {activeTab === 'main' && renderMainTab()}
+        {activeTab === 'profil' && renderProfilTab()}
+        {activeTab === 'bildirimler' && renderBildirimlerTab()}
+        {activeTab === 'gizlilik' && renderGizlilikTab()}
+      </main>
+
+      {/* Logout Modal */}
+      {showLogoutModal && (
+        <div className="modal-backdrop" onClick={() => setShowLogoutModal(false)}>
+          <div className="modal-content small" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-icon warning">
+              <LogOutIcon />
+            </div>
+            <h3 className="modal-title centered">Çıkış Yap</h3>
+            <p className="modal-text">Hesabınızdan çıkış yapmak istediğinize emin misiniz?</p>
+            <div className="modal-actions">
+              <button 
+                className="modal-btn secondary" 
+                onClick={() => setShowLogoutModal(false)}
+              >
+                İptal
+              </button>
+              <button 
+                className="modal-btn primary"
+                onClick={handleLogout}
+              >
+                Çıkış Yap
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
-      {/* Hesap Silme Modal */}
+      {/* Delete Account Modal */}
       {showDeleteModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <GlassCard className="w-full max-w-sm mx-4">
-            <div className="text-center">
-              <div className="w-16 h-16 rounded-full bg-[#fd79a8]/20 flex items-center justify-center mx-auto mb-4">
-                <AlertTriangle size={32} className="text-[#fd79a8]" />
-              </div>
-              <h3 className="text-xl font-semibold text-white mb-2">Hesabı Sil</h3>
-              <p className="text-[#8E8E93] mb-4">
-                Bu işlem geri alınamaz. Tüm verileriniz kalıcı olarak silinecektir.
-              </p>
-              
-              {deleteError && (
-                <div className="mb-4 p-3 rounded-xl bg-[#fd79a8]/20 text-[#fd79a8] text-sm">
-                  {deleteError}
-                </div>
-              )}
-              
-              <div className="flex gap-3">
-                <Button 
-                  variant="secondary" 
-                  className="flex-1" 
-                  onClick={() => {
-                    setShowDeleteModal(false);
-                    setDeleteError('');
-                  }}
-                  disabled={deleteLoading}
-                >
-                  İptal
-                </Button>
-                <Button 
-                  variant="danger" 
-                  className="flex-1" 
-                  onClick={handleDeleteAccount}
-                  disabled={deleteLoading}
-                >
-                  {deleteLoading ? (
-                    <>
-                      <Loader2 size={16} className="animate-spin mr-2" />
-                      Siliniyor...
-                    </>
-                  ) : (
-                    'Hesabı Sil'
-                  )}
-                </Button>
-              </div>
+        <div className="modal-backdrop" onClick={() => setShowDeleteModal(false)}>
+          <div className="modal-content small" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-icon danger">
+              <TrashIcon />
             </div>
-          </GlassCard>
+            <h3 className="modal-title centered">Hesabı Sil</h3>
+            <p className="modal-text">
+              Bu işlem geri alınamaz. Tüm verileriniz kalıcı olarak silinecektir.
+            </p>
+            {deleteError && (
+              <div className="modal-error">{deleteError}</div>
+            )}
+            <div className="modal-actions">
+              <button 
+                className="modal-btn secondary" 
+                onClick={() => { setShowDeleteModal(false); setDeleteError(''); }}
+                disabled={deleteLoading}
+              >
+                İptal
+              </button>
+              <button 
+                className="modal-btn danger"
+                onClick={handleDeleteAccount}
+                disabled={deleteLoading}
+              >
+                {deleteLoading ? 'Siliniyor...' : 'Hesabı Sil'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

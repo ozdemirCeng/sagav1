@@ -436,12 +436,12 @@ namespace Saga.Server.Services
                     mediaType = tvDto.MediaType
                 };
 
-                // Veritabanına kaydet - dizileri de film olarak kaydediyoruz (şimdilik)
+                // Veritabanına kaydet
                 var icerik = new Icerik
                 {
                     HariciId = hariciId,
                     ApiKaynagi = ApiKaynak.tmdb,
-                    Tur = IcerikTuru.film, // Diziler için ayrı bir tür eklenebilir
+                    Tur = IcerikTuru.dizi, // Diziler için dizi türü
                     Baslik = tvDto.Baslik,
                     Aciklama = tvDto.Aciklama,
                     PosterUrl = tvDto.PosterUrl,

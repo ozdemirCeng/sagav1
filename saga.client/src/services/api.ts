@@ -53,11 +53,23 @@ export interface AktiviteVeri {
     posterUrl?: string;
     tur?: string;
     puan?: number;
+    ortalamaPuan?: number; // Saga platform ortalaması
+    hariciPuan?: number; // TMDB/IMDB puanı
     yorumOzet?: string;
+    yorumTamUzunluk?: number; // Tam yorum uzunluğu
+    spoilerIceriyor?: boolean;
+    yorumId?: number;
     listeAdi?: string;
     takipEdilenKullaniciAdi?: string;
     takipEdilenAvatar?: string;
     durum?: string;
+    // Detay bilgileri (feed.html ile uyumlu)
+    yil?: number;
+    sure?: string;
+    sezonSayisi?: number;
+    bolumSayisi?: number;
+    sayfaSayisi?: number;
+    yazar?: string;
 }
 
 export interface Aktivite {
@@ -117,16 +129,19 @@ export interface KullaniciAyarlari {
 }
 
 export interface OyuncuInfo {
+    id?: number;
+    hariciId?: string;
     ad: string;
     karakter?: string;
     profilUrl?: string;
+    rolTipi?: string; // oyuncu, yonetmen, yapimci, senarist
 }
 
 export interface Icerik {
     id: number;
     hariciId: string;
     apiKaynagi: string;
-    tur: 'film' | 'kitap';
+    tur: string; // Backend "Film", "Dizi", "Kitap" döndürüyor
     baslik: string;
     aciklama?: string;
     posterUrl?: string;
@@ -171,6 +186,14 @@ export interface IcerikListItem {
     hariciOySayisi?: number;
     populerlikSkoru?: number;
     yayinTarihi?: string;
+    // Süre ve bölüm bilgileri
+    sure?: number; // Film süresi (dakika)
+    sezonSayisi?: number; // Diziler için sezon sayısı
+    bolumSayisi?: number; // Diziler için bölüm sayısı
+    sayfaSayisi?: number; // Kitaplar için sayfa sayısı
+    // Ek bilgiler
+    yazar?: string; // Kitaplar için yazar
+    turler?: string[]; // Türler (Aksiyon, Komedi vb.)
 }
 
 export interface Yorum {
@@ -270,12 +293,17 @@ export interface TmdbFilm {
     baslik?: string;
     aciklama?: string;
     posterUrl?: string;
+    arkaplanUrl?: string; // Backdrop image
     yayinTarihi?: string;
     puan?: number;
     oySayisi?: number;
     mediaType?: 'movie' | 'tv'; // Film mi dizi mi
+    tur?: string; // İçerik türü (Film, Dizi, Kitap)
     turIds?: number[]; // Tür ID'leri (TMDB genre IDs)
     turler?: string[]; // Tür adları
+    // SAGA platformundaki veriler
+    sagaOrtalamaPuan?: number; // SAGA platform ortalaması
+    sagaIcerikId?: number; // Veritabanındaki içerik ID'si
     // Alternatif alanlar (uyumluluk için)
     title?: string;
     overview?: string;
@@ -400,6 +428,11 @@ export const aktiviteApi = {
     yorumSil: async (yorumId: number) => {
         await api.delete(`/aktivite/yorum/${yorumId}`);
     },
+    
+    // Aktivite sil
+    aktiviteSil: async (aktiviteId: number) => {
+        await api.delete(`/aktivite/${aktiviteId}`);
+    },
 };
 
 // ============================================
@@ -498,6 +531,14 @@ export const icerikApi = {
     // Önerilen içerikler (auth gerekli)
     getOnerilenler: async (limit?: number) => {
         const response = await api.get<IcerikListItem[]>('/icerik/onerilenler', { params: { limit } });
+        return response.data;
+    },
+
+    // Benzer içerikler - Akıllı algoritma ile (tür, puan, yıl, popülerlik)
+    getSimilar: async (icerikId: number, _tur?: string, limit?: number) => {
+        const response = await api.get<IcerikListItem[]>(`/icerik/${icerikId}/benzer`, { 
+            params: { limit: limit || 6 } 
+        });
         return response.data;
     },
 };
@@ -622,6 +663,33 @@ export interface ListeCreateDto {
     tur?: string;
     aciklama?: string;
     herkeseAcik?: boolean;
+}
+
+// Keşfet sayfası için popüler liste
+export interface PopulerListe {
+    id: number;
+    ad: string;
+    aciklama?: string;
+    icerikSayisi: number;
+    begeniSayisi: number;
+    kullaniciId: string;
+    kullaniciAdi: string;
+    kullaniciAvatar?: string;
+    onaylandi: boolean;
+    olusturulmaZamani: string;
+    kapakGorselleri: string[];
+}
+
+// Keşfet sayfası için önerilen kullanıcı
+export interface OnerilenKullanici {
+    id: string;
+    kullaniciAdi: string;
+    goruntulemeAdi?: string;
+    avatarUrl?: string;
+    takipEdenSayisi: number;
+    toplamPuanlama: number;
+    ortakIcerikSayisi: number;
+    oneriNedeni: string;
 }
 
 export const kutuphaneApi = {
@@ -760,6 +828,12 @@ export const listeApi = {
         const response = await api.post<{ herkeseAcik: boolean }>(`/liste/${listeId}/gizlilik`);
         return response.data;
     },
+
+    // Popüler listeler (keşfet sayfası için)
+    getPopuler: async (limit?: number) => {
+        const response = await api.get<PopulerListe[]>('/liste/populer', { params: { limit } });
+        return response.data;
+    },
 };
 
 // ============================================
@@ -788,6 +862,12 @@ export const kullaniciApi = {
     // Takibi bırak (aynı endpoint toggle yapar)
     takipBirak: async (kullaniciId: string) => {
         const response = await api.post(`/kullanici/${kullaniciId}/takip`);
+        return response.data;
+    },
+
+    // Takipçiyi çıkar (kendi takipçilerinden birini kaldır)
+    takipciCikar: async (kullaniciId: string) => {
+        const response = await api.delete(`/kullanici/${kullaniciId}/takipci-cikar`);
         return response.data;
     },
 

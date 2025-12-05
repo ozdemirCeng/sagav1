@@ -25,6 +25,7 @@ namespace Saga.Server.Services
         Task<GoogleBookDto?> GetBookByIdAsync(string googleBooksId);
         Task<GoogleBooksSearchResult> SearchBooksAsync(string query, int startIndex = 0, int maxResults = 20, string? orderBy = null, string? langRestrict = null, string? filter = null);
         Task<Icerik?> ImportBookAsync(string googleBooksId);
+        Task<string?> FindDescriptionForBookAsync(string title, string? author);
     }
 
     // Google Books Arama Sonucu (totalItems ile birlikte)
@@ -54,6 +55,10 @@ namespace Saga.Server.Services
         public int? SezonSayisi { get; set; } // Diziler için
         public int? BolumSayisi { get; set; } // Diziler için
         public string MediaType { get; set; } = "movie"; // movie veya tv
+        
+        // SAGA platformundaki ortalama puan (veritabanında kayıtlıysa)
+        public decimal? SagaOrtalamaPuan { get; set; }
+        public int? SagaIcerikId { get; set; } // Veritabanındaki içerik ID'si
     }
 
     // Oyuncu DTO

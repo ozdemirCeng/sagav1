@@ -103,5 +103,22 @@ namespace Saga.Server.DTOs
         public bool HerkeseAcik { get; set; }
         public int IcerikSayisi { get; set; }
     }
+
+    // Popüler liste kartı için DTO
+    public class PopulerListeDto
+    {
+        public long Id { get; set; }
+        public string Ad { get; set; } = null!;
+        public string? Aciklama { get; set; }
+        public int IcerikSayisi { get; set; }
+        public int BegeniSayisi { get; set; }
+        public Guid KullaniciId { get; set; }
+        public string KullaniciAdi { get; set; } = null!;
+        public string? KullaniciAvatar { get; set; }
+        public bool Onaylandi { get; set; } // Editör onaylı mı
+        public DateTime OlusturulmaZamani { get; set; }
+        // İlk 3 içeriğin poster URL'leri (kapak görselleri için)
+        public List<string> KapakGorselleri { get; set; } = new();
+    }
 }
 

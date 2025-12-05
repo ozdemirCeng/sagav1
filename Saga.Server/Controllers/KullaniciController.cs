@@ -26,6 +26,54 @@ namespace Saga.Server.Controllers
         public async Task<ActionResult<ProfilDto>> GetMyProfil()
         {
             var kullaniciId = GetCurrentUserId();
+            
+            // Kullanıcı veritabanında yoksa oluştur (Supabase'den ilk giriş)
+            var kullanici = await _context.Kullanicilar
+                .FirstOrDefaultAsync(k => k.Id == kullaniciId && !k.Silindi);
+            
+            if (kullanici == null)
+            {
+                // Supabase JWT'den bilgileri al - tüm claim'leri kontrol et
+                var email = User.FindFirst("email")?.Value ?? "";
+                
+                // user_metadata JWT'de ayrı bir claim olarak gelir
+                var userMetadataClaim = User.FindFirst("user_metadata")?.Value;
+                string? username = null;
+                string? fullName = null;
+                
+                if (!string.IsNullOrEmpty(userMetadataClaim))
+                {
+                    try
+                    {
+                        var metadata = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(userMetadataClaim);
+                        if (metadata.TryGetProperty("username", out var usernameProp))
+                            username = usernameProp.GetString();
+                        if (metadata.TryGetProperty("full_name", out var fullNameProp))
+                            fullName = fullNameProp.GetString();
+                    }
+                    catch { /* JSON parse hatası, fallback kullan */ }
+                }
+                
+                // Fallback değerler
+                username ??= User.FindFirst("preferred_username")?.Value ?? email.Split('@')[0];
+                fullName ??= User.FindFirst("name")?.Value;
+
+                kullanici = new Kullanici
+                {
+                    Id = kullaniciId,
+                    Eposta = email,
+                    KullaniciAdi = username,
+                    GoruntulemeAdi = fullName,
+                    Rol = KullaniciRol.kullanici,
+                    OlusturulmaZamani = DateTime.UtcNow
+                };
+
+                _context.Kullanicilar.Add(kullanici);
+                await _context.SaveChangesAsync();
+                
+                _logger.LogInformation("Yeni kullanıcı oluşturuldu: {KullaniciAdi} ({Id})", username, kullaniciId);
+            }
+            
             return await GetProfil(kullaniciId);
         }
 
@@ -95,8 +143,9 @@ namespace Saga.Server.Controllers
                 // Sadece gönderilen değerleri güncelle, boş string'leri yoksay
                 if (!string.IsNullOrWhiteSpace(dto.GoruntulemeAdi))
                     kullanici.GoruntulemeAdi = dto.GoruntulemeAdi;
-                if (!string.IsNullOrWhiteSpace(dto.Biyografi))
-                    kullanici.Biyografi = dto.Biyografi;
+                // Biyografi için null kontrolü - boş string de kabul edilir (biyografi silme)
+                if (dto.Biyografi != null)
+                    kullanici.Biyografi = string.IsNullOrWhiteSpace(dto.Biyografi) ? null : dto.Biyografi;
                 if (!string.IsNullOrWhiteSpace(dto.AvatarUrl))
                     kullanici.AvatarUrl = dto.AvatarUrl;
                     
@@ -192,6 +241,46 @@ namespace Saga.Server.Controllers
             {
                 _logger.LogError(ex, "Takip işlemi sırasında hata: {TakipEdilenId}", id);
                 return StatusCode(500, new { message = "Takip işlemi sırasında bir hata oluştu." });
+            }
+        }
+
+        // DELETE: api/kullanici/{id}/takipci-cikar - Takipçiyi çıkar (kendi takipçilerinden birini kaldır)
+        [HttpDelete("{id}/takipci-cikar")]
+        [Authorize]
+        public async Task<ActionResult> TakipciCikar(Guid id)
+        {
+            try
+            {
+                var kullaniciIdStr = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                if (!Guid.TryParse(kullaniciIdStr, out var kullaniciId))
+                {
+                    return Unauthorized(new { message = "Kullanıcı kimliği bulunamadı." });
+                }
+
+                // Kendini çıkaramaz
+                if (kullaniciId == id)
+                {
+                    return BadRequest(new { message = "Kendinizi takipçilerinizden çıkaramazsınız." });
+                }
+
+                // Takip kaydını bul (id = takipçi, kullaniciId = takip edilen)
+                var takip = await _context.Takipler
+                    .FirstOrDefaultAsync(t => t.TakipEdenId == id && t.TakipEdilenId == kullaniciId);
+
+                if (takip == null)
+                {
+                    return NotFound(new { message = "Bu kullanıcı sizi takip etmiyor." });
+                }
+
+                _context.Takipler.Remove(takip);
+                await _context.SaveChangesAsync();
+
+                return Ok(new { message = "Takipçi çıkarıldı" });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Takipçi çıkarma sırasında hata: {TakipciId}", id);
+                return StatusCode(500, new { message = "Takipçi çıkarma sırasında bir hata oluştu." });
             }
         }
 
@@ -447,7 +536,7 @@ namespace Saga.Server.Controllers
         // }
 
         // DELETE: api/kullanici/hesap
-        // Kullanıcı hesabını kalıcı olarak siler
+        // Kullanıcı hesabını ve tüm ilişkili verileri kalıcı olarak siler
         [HttpDelete("hesap")]
         [Authorize]
         public async Task<IActionResult> DeleteAccount()
@@ -464,43 +553,95 @@ namespace Saga.Server.Controllers
                     return NotFound(new { message = "Kullanıcı bulunamadı." });
                 }
 
-                // Soft delete - sadece silindi olarak işaretle
-                // İlişkili tüm veriler de soft delete yapılacak
-                kullanici.Silindi = true;
-                kullanici.GuncellemeZamani = DateTime.UtcNow;
-                kullanici.Aktif = false;
+                _logger.LogInformation("Kullanıcı hesabı siliniyor: {KullaniciId} - {KullaniciAdi}", kullaniciId, kullanici.KullaniciAdi);
 
-                // İlişkili verileri de soft delete yap
-                await _context.Aktiviteler
-                    .Where(a => a.KullaniciId == kullaniciId)
-                    .ExecuteUpdateAsync(a => a.SetProperty(x => x.Silindi, true));
+                // 1. Aktivite yorum beğenilerini sil
+                await _context.AktiviteYorumBegenileri
+                    .Where(ayb => ayb.KullaniciId == kullaniciId)
+                    .ExecuteDeleteAsync();
 
+                // 2. Aktivite yorumlarını sil
+                await _context.AktiviteYorumlari
+                    .Where(ay => ay.KullaniciId == kullaniciId)
+                    .ExecuteDeleteAsync();
+
+                // 3. Aktivite beğenilerini sil
+                await _context.AktiviteBegenileri
+                    .Where(ab => ab.KullaniciId == kullaniciId)
+                    .ExecuteDeleteAsync();
+
+                // 4. Bildirimleri sil (gelen ve gönderilen)
+                await _context.Bildirimler
+                    .Where(b => b.AliciId == kullaniciId || b.GonderenId == kullaniciId)
+                    .ExecuteDeleteAsync();
+
+                // 5. Yorum beğenilerini sil
+                await _context.YorumBegenileri
+                    .Where(yb => yb.KullaniciId == kullaniciId)
+                    .ExecuteDeleteAsync();
+
+                // 6. Yorumları sil
                 await _context.Yorumlar
                     .Where(y => y.KullaniciId == kullaniciId)
-                    .ExecuteUpdateAsync(y => y.SetProperty(x => x.Silindi, true));
+                    .ExecuteDeleteAsync();
 
+                // 7. Puanlamaları sil
                 await _context.Puanlamalar
                     .Where(p => p.KullaniciId == kullaniciId)
-                    .ExecuteUpdateAsync(p => p.SetProperty(x => x.Silindi, true));
+                    .ExecuteDeleteAsync();
 
+                // 8. Liste içeriklerini sil
+                var listeIds = await _context.Listeler
+                    .Where(l => l.KullaniciId == kullaniciId)
+                    .Select(l => l.Id)
+                    .ToListAsync();
+                
+                await _context.ListeIcerikleri
+                    .Where(li => listeIds.Contains(li.ListeId))
+                    .ExecuteDeleteAsync();
+
+                // 9. Listeleri sil
                 await _context.Listeler
                     .Where(l => l.KullaniciId == kullaniciId)
-                    .ExecuteUpdateAsync(l => l.SetProperty(x => x.Silindi, true));
+                    .ExecuteDeleteAsync();
 
+                // 10. Kütüphane durumlarını sil
                 await _context.KutuphaneDurumlari
                     .Where(k => k.KullaniciId == kullaniciId)
-                    .ExecuteUpdateAsync(k => k.SetProperty(x => x.Silindi, true));
+                    .ExecuteDeleteAsync();
 
-                // Takipleri sil (hard delete)
+                // 11. İçerik favorilerini sil
+                await _context.IcerikFavorileri
+                    .Where(f => f.KullaniciId == kullaniciId)
+                    .ExecuteDeleteAsync();
+
+                // 12. Takipleri sil (takip eden ve takip edilen)
                 await _context.Takipler
                     .Where(t => t.TakipEdenId == kullaniciId || t.TakipEdilenId == kullaniciId)
                     .ExecuteDeleteAsync();
 
+                // 13. Engelleme kayıtlarını sil
+                await _context.Engellenenler
+                    .Where(e => e.EngelleyenId == kullaniciId || e.EngellenenId == kullaniciId)
+                    .ExecuteDeleteAsync();
+
+                // 14. Kullanıcı ayarlarını sil
+                await _context.KullaniciAyarlari
+                    .Where(ka => ka.KullaniciId == kullaniciId)
+                    .ExecuteDeleteAsync();
+
+                // 15. Aktiviteleri sil
+                await _context.Aktiviteler
+                    .Where(a => a.KullaniciId == kullaniciId)
+                    .ExecuteDeleteAsync();
+
+                // 16. Son olarak kullanıcıyı sil
+                _context.Kullanicilar.Remove(kullanici);
                 await _context.SaveChangesAsync();
 
-                _logger.LogInformation("Kullanıcı hesabı silindi: {KullaniciId}", kullaniciId);
+                _logger.LogInformation("Kullanıcı hesabı ve tüm verileri kalıcı olarak silindi: {KullaniciId}", kullaniciId);
 
-                return Ok(new { message = "Hesabınız başarıyla silindi." });
+                return Ok(new { message = "Hesabınız ve tüm verileriniz kalıcı olarak silindi." });
             }
             catch (Exception ex)
             {

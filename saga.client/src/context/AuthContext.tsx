@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../services/supabase';
 import { LoginRequiredModal } from '../components/ui/Modal';
@@ -141,19 +141,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return false;
     }, [isAuthenticated]);
 
+    // Context value'yu memoize et - gereksiz re-render'ları önler
+    const contextValue = useMemo(() => ({
+        session, 
+        user,
+        supabaseUser,
+        loading, 
+        isAuthenticated,
+        signOut,
+        requireAuth,
+        showLoginModal,
+        setShowLoginModal,
+        pendingAction,
+    }), [session, user, supabaseUser, loading, isAuthenticated, signOut, requireAuth, showLoginModal, pendingAction]);
+
     return (
-        <AuthContext.Provider value={{ 
-            session, 
-            user,
-            supabaseUser,
-            loading, 
-            isAuthenticated,
-            signOut,
-            requireAuth,
-            showLoginModal,
-            setShowLoginModal,
-            pendingAction,
-        }}>
+        <AuthContext.Provider value={contextValue}>
             {!loading && children}
         </AuthContext.Provider>
     );

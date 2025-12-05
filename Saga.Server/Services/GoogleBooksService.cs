@@ -239,17 +239,43 @@ namespace Saga.Server.Services
                 var mevcutIcerik = _context.Icerikler
                     .FirstOrDefault(i => i.HariciId == googleBooksId && i.ApiKaynagi == ApiKaynak.google_books);
 
-                if (mevcutIcerik != null)
-                {
-                    _logger.LogInformation("Kitap zaten mevcut: {GoogleBooksId}", googleBooksId);
-                    return mevcutIcerik;
-                }
-
                 // Google Books'tan bilgileri al
                 var bookDto = await GetBookByIdAsync(googleBooksId);
                 if (bookDto == null)
                 {
+                    // API'den alınamadıysa ve veritabanında varsa mevcut olanı döndür
+                    if (mevcutIcerik != null)
+                    {
+                        return mevcutIcerik;
+                    }
                     return null;
+                }
+
+                if (mevcutIcerik != null)
+                {
+                    // Mevcut kayıt varsa, eksik alanları güncelle
+                    bool updated = false;
+                    
+                    if (string.IsNullOrEmpty(mevcutIcerik.Aciklama) && !string.IsNullOrEmpty(bookDto.Aciklama))
+                    {
+                        mevcutIcerik.Aciklama = bookDto.Aciklama;
+                        updated = true;
+                        _logger.LogInformation("📝 Kitap açıklaması güncellendi: {GoogleBooksId}", googleBooksId);
+                    }
+                    
+                    if (string.IsNullOrEmpty(mevcutIcerik.PosterUrl) && !string.IsNullOrEmpty(bookDto.PosterUrl))
+                    {
+                        mevcutIcerik.PosterUrl = bookDto.PosterUrl;
+                        updated = true;
+                    }
+                    
+                    if (updated)
+                    {
+                        await _context.SaveChangesAsync();
+                    }
+                    
+                    _logger.LogInformation("Kitap zaten mevcut: {GoogleBooksId}", googleBooksId);
+                    return mevcutIcerik;
                 }
 
                 // Meta veriyi JSON olarak hazırla
@@ -416,6 +442,107 @@ namespace Saga.Server.Services
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Kitap başlığı ve yazar ile arama yaparak açıklaması olan bir edisyon bulur.
+        /// Türkçe açıklamayı önceliklendirir.
+        /// </summary>
+        public async Task<string?> FindDescriptionForBookAsync(string title, string? author)
+        {
+            try
+            {
+                // Farklı arama stratejileri dene
+                var searchQueries = new List<string>();
+                
+                // 1. Başlık + yazar
+                if (!string.IsNullOrEmpty(author))
+                {
+                    searchQueries.Add($"intitle:{title}+inauthor:{author}");
+                    searchQueries.Add($"{title} {author}");
+                }
+                
+                // 2. Sadece başlık
+                searchQueries.Add($"intitle:{title}");
+                searchQueries.Add(title);
+                
+                string? turkceAciklama = null;
+                string? digerAciklama = null;
+                
+                foreach (var searchQuery in searchQueries)
+                {
+                    var searchResult = await SearchBooksAsync(searchQuery, maxResults: 15);
+                    
+                    if (searchResult.Items != null)
+                    {
+                        // Başlığı benzer olan ve açıklaması olan kitapları bul
+                        var normalizedTitle = NormalizeTitle(title);
+                        
+                        var booksWithDescription = searchResult.Items
+                            .Where(b => !string.IsNullOrEmpty(b.Aciklama))
+                            .Where(b => NormalizeTitle(b.Baslik).Contains(normalizedTitle) || 
+                                        normalizedTitle.Contains(NormalizeTitle(b.Baslik)))
+                            .ToList();
+                        
+                        foreach (var book in booksWithDescription)
+                        {
+                            // Türkçe karakter içeren açıklamayı tercih et
+                            if (ContainsTurkishChars(book.Aciklama!))
+                            {
+                                turkceAciklama = book.Aciklama;
+                                _logger.LogInformation("📖 Türkçe açıklama bulundu: {Title} -> {FoundTitle}", 
+                                    title, book.Baslik);
+                                break;
+                            }
+                            else if (digerAciklama == null)
+                            {
+                                digerAciklama = book.Aciklama;
+                            }
+                        }
+                        
+                        if (turkceAciklama != null) break;
+                    }
+                }
+                
+                // Türkçe açıklama varsa onu, yoksa diğer dildeki açıklamayı döndür
+                if (turkceAciklama != null)
+                {
+                    return turkceAciklama;
+                }
+                
+                if (digerAciklama != null)
+                {
+                    _logger.LogInformation("📖 Yabancı dilde açıklama bulundu: {Title}", title);
+                    return digerAciklama;
+                }
+                
+                _logger.LogWarning("📖 Açıklama bulunamadı: {Title} - {Author}", title, author);
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Kitap açıklaması aranırken hata: {Title}", title);
+                return null;
+            }
+        }
+
+        private static bool ContainsTurkishChars(string text)
+        {
+            // Türkçe karakterler: ç, ğ, ı, İ, ö, ş, ü, Ç, Ğ, Ö, Ş, Ü
+            return text.Any(c => "çğıİöşüÇĞÖŞÜ".Contains(c));
+        }
+
+        private static string NormalizeTitle(string title)
+        {
+            if (string.IsNullOrEmpty(title)) return "";
+            return title.ToLowerInvariant()
+                .Replace("ı", "i")
+                .Replace("ğ", "g")
+                .Replace("ü", "u")
+                .Replace("ş", "s")
+                .Replace("ö", "o")
+                .Replace("ç", "c")
+                .Trim();
         }
     }
 }

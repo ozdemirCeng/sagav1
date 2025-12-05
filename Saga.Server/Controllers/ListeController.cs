@@ -20,6 +20,56 @@ namespace Saga.Server.Controllers
             _logger = logger;
         }
 
+        // GET: api/liste/populer
+        // Keşfet sayfası için popüler/öne çıkan listeler
+        [HttpGet("populer")]
+        [AllowAnonymous]
+        public async Task<ActionResult<List<PopulerListeDto>>> GetPopulerListeler([FromQuery] int limit = 6)
+        {
+            try
+            {
+                // Herkese açık, en az 3 içerikli listeleri getir
+                // İçerik sayısına ve oluşturulma tarihine göre sırala
+                var listeler = await _context.Listeler
+                    .Include(l => l.Kullanici)
+                    .Include(l => l.Icerikler)
+                        .ThenInclude(li => li.Icerik)
+                    .Where(l => l.HerkeseAcik && !l.Silindi && l.IcerikSayisi >= 3)
+                    .OrderByDescending(l => l.IcerikSayisi)
+                    .ThenByDescending(l => l.OlusturulmaZamani)
+                    .Take(limit)
+                    .AsNoTracking()
+                    .ToListAsync();
+
+                var response = listeler.Select(l => new PopulerListeDto
+                {
+                    Id = l.Id,
+                    Ad = l.Ad,
+                    Aciklama = l.Aciklama,
+                    IcerikSayisi = l.IcerikSayisi,
+                    BegeniSayisi = 0, // TODO: Beğeni sistemi eklenince güncelle
+                    KullaniciId = l.KullaniciId,
+                    KullaniciAdi = l.Kullanici?.KullaniciAdi ?? "Anonim",
+                    KullaniciAvatar = l.Kullanici?.AvatarUrl,
+                    Onaylandi = l.Tur == ListeTuru.sistem, // Sistem listeleri editör onaylı sayılır
+                    OlusturulmaZamani = l.OlusturulmaZamani,
+                    KapakGorselleri = l.Icerikler
+                        .OrderBy(li => li.Sira)
+                        .Take(3)
+                        .Select(li => li.Icerik?.PosterUrl ?? "")
+                        .Where(url => !string.IsNullOrEmpty(url))
+                        .ToList()
+                }).ToList();
+
+                return Ok(response);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Popüler listeler getirilirken hata oluştu");
+                return StatusCode(500, new { message = "Listeler yüklenirken bir hata oluştu." });
+            }
+        }
+
         // GET: api/liste
         // Kullanıcının kendi listelerini getir
         [HttpGet]

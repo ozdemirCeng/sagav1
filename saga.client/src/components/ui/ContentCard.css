@@ -1,0 +1,539 @@
+/* ═══════════════════════════════════════════════════════════════
+   CONTENT CARD - Ortak Poster Kartı Stilleri
+   Tüm sayfalarda kullanılan tutarlı poster kartı tasarımı
+   VOID THEME with GOLD ACCENT
+═══════════════════════════════════════════════════════════════ */
+
+/* CSS Variables - Void Theme */
+.content-card {
+  --card-void: #030304;
+  --card-void-light: #0a0a0c;
+  --card-void-surface: #111115;
+  --card-void-elevated: #18181d;
+  --card-void-border: #25252d;
+  --card-gold: #d4a853;
+  --card-gold-dim: rgba(212, 168, 83, 0.15);
+  --card-gold-glow: rgba(212, 168, 83, 0.3);
+  --card-gold-light: #e4b863;
+  --card-text-primary: #ffffff;
+  --card-text-secondary: rgba(255, 255, 255, 0.7);
+  --card-text-muted: rgba(255, 255, 255, 0.45);
+  /* Accent renkleri - altın tonları */
+  --card-accent-saga: #d4a853;
+  --card-accent-tmdb: #d4a853;
+  --card-accent-google: #7dd3fc;
+}
+
+/* ========================================
+   CONTENT GRID
+======================================== */
+.content-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 20px;
+}
+
+.content-grid.size-sm {
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 16px;
+}
+
+.content-grid.size-lg {
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 24px;
+}
+
+/* ========================================
+   HORIZONTAL SCROLL GRID (for trending)
+======================================== */
+.content-grid--horizontal {
+  display: flex;
+  gap: 20px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-behavior: smooth;
+  padding-bottom: 12px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--card-gold) var(--card-void-surface);
+}
+
+.content-grid--horizontal::-webkit-scrollbar {
+  display: none;
+}
+
+.content-grid--horizontal {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.content-grid--horizontal .content-card {
+  flex: 0 0 180px;
+  width: 180px;
+}
+
+.content-grid--horizontal .content-card.size-lg {
+  flex: 0 0 240px;
+  width: 240px;
+}
+
+/* ========================================
+   CONTENT CARD BASE
+======================================== */
+.content-card {
+  cursor: pointer;
+  transition: all 0.3s ease;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--card-void-surface);
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--card-void-border);
+}
+
+.content-card:hover {
+  transform: translateY(-6px);
+  border-color: var(--card-gold);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4), 0 0 20px var(--card-gold-glow);
+}
+
+/* Size variants */
+.content-card.size-sm {
+  border-radius: 10px;
+}
+
+.content-card.size-lg {
+  border-radius: 14px;
+}
+
+/* ========================================
+   POSTER AREA
+======================================== */
+.content-card__poster {
+  width: 100%;
+  aspect-ratio: 2/3;
+  overflow: hidden;
+  position: relative;
+  background: var(--card-void);
+}
+
+.content-card__poster img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.3s ease;
+}
+
+.content-card:hover .content-card__poster img {
+  transform: scale(1.05);
+}
+
+.content-card__poster-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--card-text-muted);
+  background: var(--card-void-surface);
+}
+
+.content-card__poster-placeholder svg {
+  width: 40px;
+  height: 40px;
+}
+
+.content-card.size-sm .content-card__poster-placeholder svg {
+  width: 32px;
+  height: 32px;
+}
+
+/* ========================================
+   TYPE BADGE (Sol üst) - Film/Dizi/Kitap ayrımı
+======================================== */
+.content-card__badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 4px 10px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-radius: 6px;
+  z-index: 3;
+  background: var(--card-gold);
+  color: var(--card-void);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+/* When rank exists, move badge to right to avoid overlap */
+.content-card:has(.content-card__rank) .content-card__badge {
+  left: auto;
+  right: 8px;
+}
+
+/* ========================================
+   TRENDING RANK
+======================================== */
+.content-card__rank {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  font-size: 32px;
+  font-weight: 900;
+  color: var(--card-gold);
+  text-shadow: 2px 2px 8px rgba(0, 0, 0, 0.9),
+               -1px -1px 0 rgba(0, 0, 0, 0.8),
+               1px -1px 0 rgba(0, 0, 0, 0.8),
+               -1px 1px 0 rgba(0, 0, 0, 0.8),
+               1px 1px 0 rgba(0, 0, 0, 0.8);
+  z-index: 5;
+  line-height: 1;
+  font-family: 'Inter', -apple-system, system-ui, sans-serif;
+}
+
+.content-card.size-sm .content-card__rank {
+  font-size: 28px;
+  top: 6px;
+  left: 6px;
+}
+
+.content-card.size-lg .content-card__rank {
+  font-size: 36px;
+  top: 10px;
+  left: 10px;
+}
+
+/* Film badge - Altın */
+.content-card__badge--film {
+  background: var(--card-gold);
+  color: var(--card-void);
+}
+
+/* Dizi badge - Koyu yeşil/teal tonu */
+.content-card__badge--dizi {
+  background: #0d9488;
+  color: white;
+}
+
+/* Kitap badge - Koyu mavi */
+.content-card__badge--kitap {
+  background: #2563eb;
+  color: white;
+}
+
+/* ========================================
+   RATINGS CONTAINER (Footer'da - altta)
+======================================== */
+.content-card__ratings {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.content-card__rating {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+/* Default (harici puan - gri) */
+.content-card__rating svg {
+  width: 12px;
+  height: 12px;
+  fill: #9ca3af;
+  color: #9ca3af;
+}
+
+.content-card__rating-value {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary, #9ca3af);
+}
+
+/* SAGA platform rating style - Altın (öncelikli) */
+.content-card__rating--saga svg {
+  fill: var(--card-gold, #d4a853);
+  color: var(--card-gold, #d4a853);
+}
+
+.content-card__rating--saga .content-card__rating-value {
+  color: var(--card-gold, #d4a853);
+  font-weight: 700;
+}
+
+/* ========================================
+   STATUS BADGE (Kütüphane durumu) - Altın tema
+======================================== */
+.content-card__status {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(8px);
+  border-radius: 6px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: white;
+  z-index: 3;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.content-card__status svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* Durum renkleri - Altın tonları */
+.content-card__status--izleniyor {
+  color: var(--card-gold);
+  border-color: rgba(212, 168, 83, 0.3);
+}
+
+.content-card__status--tamamlandi {
+  color: #10B981;
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+.content-card__status--beklemede {
+  color: var(--card-gold-light);
+  border-color: rgba(228, 184, 99, 0.3);
+}
+
+.content-card__status--birakti {
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+/* ========================================
+   IMPORT OVERLAY
+======================================== */
+.content-card__overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  z-index: 4;
+}
+
+.content-card__poster:hover .content-card__overlay {
+  opacity: 1;
+}
+
+.content-card__overlay-btn {
+  padding: 10px 24px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  background: var(--card-gold);
+  border: none;
+  border-radius: 8px;
+  color: var(--card-void);
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.content-card__overlay-btn:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 16px var(--card-gold-glow);
+}
+
+.content-card__overlay-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ========================================
+   MATCH PERCENTAGE (Sana Özel için) - Altın tema
+======================================== */
+.content-card__match {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  padding: 4px 10px;
+  background: rgba(212, 168, 83, 0.9);
+  backdrop-filter: blur(8px);
+  border-radius: 6px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--card-void);
+  z-index: 3;
+  box-shadow: 0 2px 8px rgba(212, 168, 83, 0.3);
+}
+
+/* ========================================
+   FOOTER AREA
+======================================== */
+.content-card__footer {
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--card-void-surface);
+}
+
+.content-card.size-sm .content-card__footer {
+  padding: 8px;
+}
+
+.content-card.size-lg .content-card__footer {
+  padding: 12px;
+}
+
+.content-card__title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--card-text-primary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.3;
+  word-break: break-word;
+  margin: 0;
+}
+
+.content-card.size-sm .content-card__title {
+  font-size: 0.8rem;
+}
+
+.content-card__meta {
+  font-size: 0.7rem;
+  color: var(--card-text-muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.content-card__year {
+  color: var(--card-gold);
+  font-weight: 500;
+}
+
+.content-card__duration,
+.content-card__season-info,
+.content-card__page-count {
+  color: var(--card-text-secondary, #9ca3af);
+  font-size: 0.7rem;
+}
+
+.content-card__duration::before,
+.content-card__season-info::before,
+.content-card__page-count::before {
+  content: "•";
+  margin-right: 6px;
+  color: var(--card-text-muted, #6b7280);
+}
+
+.content-card__genres {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.content-card__genre-tag {
+  padding: 2px 8px;
+  background: var(--card-gold-dim);
+  border: 1px solid rgba(212, 168, 83, 0.2);
+  border-radius: 4px;
+  font-size: 0.65rem;
+  color: var(--card-gold);
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.content-card__author {
+  font-size: 0.7rem;
+  color: var(--card-text-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ========================================
+   SKELETON LOADING
+======================================== */
+.content-card--skeleton .content-card__poster,
+.content-card--skeleton .content-card__title,
+.content-card--skeleton .content-card__meta {
+  background: linear-gradient(90deg, 
+    rgba(255,255,255,0.05) 0%, 
+    rgba(255,255,255,0.1) 50%, 
+    rgba(255,255,255,0.05) 100%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s infinite;
+}
+
+@keyframes skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.content-card--skeleton .content-card__poster {
+  border-radius: 8px;
+}
+
+.content-card--skeleton .content-card__title {
+  height: 16px;
+  border-radius: 4px;
+}
+
+.content-card--skeleton .content-card__meta {
+  height: 12px;
+  width: 60%;
+  border-radius: 4px;
+}
+
+/* ========================================
+   RESPONSIVE
+======================================== */
+@media (max-width: 640px) {
+  .content-grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 12px;
+  }
+  
+  .content-card__badge {
+    padding: 3px 6px;
+    font-size: 0.55rem;
+  }
+  
+  .content-card__rating {
+    padding: 3px 6px;
+  }
+  
+  .content-card__rating-label {
+    font-size: 0.5rem;
+  }
+  
+  .content-card__rating-value {
+    font-size: 0.65rem;
+  }
+  
+  .content-card__title {
+    font-size: 0.75rem;
+  }
+  
+  .content-card__footer {
+    padding: 8px;
+  }
+}

@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Saga.Server.Data;
 using Saga.Server.DTOs;
 using Saga.Server.Models;
+using Saga.Server.Services;
 using System.Text.Json;
 
 namespace Saga.Server.Controllers
@@ -14,11 +15,13 @@ namespace Saga.Server.Controllers
     {
         private readonly SagaDbContext _context;
         private readonly ILogger<IcerikController> _logger;
+        private readonly IGoogleBooksService _googleBooksService;
 
-        public IcerikController(SagaDbContext context, ILogger<IcerikController> logger)
+        public IcerikController(SagaDbContext context, ILogger<IcerikController> logger, IGoogleBooksService googleBooksService)
         {
             _context = context;
             _logger = logger;
+            _googleBooksService = googleBooksService;
         }
 
         // GET: api/icerik/{id}
@@ -26,12 +29,66 @@ namespace Saga.Server.Controllers
         public async Task<ActionResult<IcerikDetailDto>> GetIcerik(long id)
         {
             var icerik = await _context.Icerikler
-                .AsNoTracking()
                 .FirstOrDefaultAsync(i => i.Id == id);
 
             if (icerik == null)
             {
                 return NotFound(new { message = "İçerik bulunamadı." });
+            }
+
+            // Kitap türünde ve açıklama boşsa, Google Books API'den çekmeyi dene
+            if (icerik.Tur == IcerikTuru.kitap && 
+                string.IsNullOrEmpty(icerik.Aciklama) && 
+                icerik.ApiKaynagi == ApiKaynak.google_books)
+            {
+                try
+                {
+                    string? aciklama = null;
+                    
+                    // Önce mevcut harici ID ile dene
+                    if (!string.IsNullOrEmpty(icerik.HariciId))
+                    {
+                        var bookDto = await _googleBooksService.GetBookByIdAsync(icerik.HariciId);
+                        if (bookDto != null && !string.IsNullOrEmpty(bookDto.Aciklama))
+                        {
+                            aciklama = bookDto.Aciklama;
+                        }
+                    }
+                    
+                    // Harici ID'den açıklama gelmezse, aynı başlık/yazar ile arama yap
+                    if (string.IsNullOrEmpty(aciklama))
+                    {
+                        // Meta veriden yazarı al
+                        string? yazar = null;
+                        if (!string.IsNullOrEmpty(icerik.MetaVeri))
+                        {
+                            try
+                            {
+                                var metaDoc = System.Text.Json.JsonDocument.Parse(icerik.MetaVeri);
+                                if (metaDoc.RootElement.TryGetProperty("yazarlar", out var yazarlar) && 
+                                    yazarlar.ValueKind == System.Text.Json.JsonValueKind.Array &&
+                                    yazarlar.GetArrayLength() > 0)
+                                {
+                                    yazar = yazarlar[0].GetString();
+                                }
+                            }
+                            catch { }
+                        }
+                        
+                        aciklama = await _googleBooksService.FindDescriptionForBookAsync(icerik.Baslik, yazar);
+                    }
+                    
+                    if (!string.IsNullOrEmpty(aciklama))
+                    {
+                        icerik.Aciklama = aciklama;
+                        await _context.SaveChangesAsync();
+                        _logger.LogInformation("📚 Kitap açıklaması API'den güncellendi: {Baslik} (ID: {Id})", icerik.Baslik, icerik.Id);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Kitap açıklaması API'den alınamadı: {Baslik}", icerik.Baslik);
+                }
             }
 
             var kullaniciId = GetCurrentUserIdOrNull();
@@ -211,6 +268,20 @@ namespace Saga.Server.Controllers
                 }
             }
 
+            // Tip düzeltmesi: Metadata'ya göre içerik tipini düzelt
+            if ((response.SezonSayisi > 0 || response.BolumSayisi > 0) && response.Tur != "Dizi")
+            {
+                response.Tur = "Dizi";
+            }
+            else if (response.SayfaSayisi > 0 && response.Tur != "Kitap")
+            {
+                response.Tur = "Kitap";
+            }
+            else if (response.Sure > 0 && response.SezonSayisi == null && response.BolumSayisi == null && response.Tur != "Film")
+            {
+                response.Tur = "Film";
+            }
+
             return Ok(response);
         }
 
@@ -364,19 +435,7 @@ namespace Saga.Server.Controllers
                 .Take(limit)
                 .ToListAsync();
 
-            var response = icerikler.Select(i => new IcerikListDto
-            {
-                Id = i.Id,
-                Baslik = i.Baslik,
-                Tur = i.Tur.ToString(),
-                Aciklama = i.Aciklama,
-                PosterUrl = i.PosterUrl,
-                OrtalamaPuan = i.OrtalamaPuan,
-                HariciPuan = i.HariciPuan,
-                HariciOySayisi = i.HariciOySayisi,
-                YayinTarihi = i.YayinTarihi,
-                PopulerlikSkoru = i.PopulerlikSkoru
-            }).ToList();
+            var response = icerikler.Select(CreateIcerikListDtoWithMeta).ToList();
 
             Response.Headers.Append("X-Toplam-Sayfa", ((toplam + limit - 1) / limit).ToString());
             Response.Headers.Append("X-Toplam-Kayit", toplam.ToString());
@@ -407,20 +466,7 @@ namespace Saga.Server.Controllers
                 .Take(limit)
                 .ToListAsync();
 
-            var response = icerikler.Select(i => new IcerikListDto
-            {
-                Id = i.Id,
-                Baslik = i.Baslik,
-                Tur = i.Tur.ToString(),
-                Aciklama = i.Aciklama,
-                PosterUrl = i.PosterUrl,
-                OrtalamaPuan = i.OrtalamaPuan,
-                HariciPuan = i.HariciPuan,
-                HariciOySayisi = i.HariciOySayisi,
-                YayinTarihi = i.YayinTarihi,
-                PopulerlikSkoru = i.PopulerlikSkoru,
-                PuanlamaSayisi = i.PuanlamaSayisi
-            }).ToList();
+            var response = icerikler.Select(CreateIcerikListDtoWithMeta).ToList();
 
             return Ok(response);
         }
@@ -444,20 +490,7 @@ namespace Saga.Server.Controllers
                 .Take(limit)
                 .ToListAsync();
 
-            var response = icerikler.Select(i => new IcerikListDto
-            {
-                Id = i.Id,
-                Baslik = i.Baslik,
-                Tur = i.Tur.ToString(),
-                Aciklama = i.Aciklama,
-                PosterUrl = i.PosterUrl,
-                OrtalamaPuan = i.OrtalamaPuan,
-                HariciPuan = i.HariciPuan,
-                HariciOySayisi = i.HariciOySayisi,
-                PuanlamaSayisi = i.PuanlamaSayisi,
-                PopulerlikSkoru = i.PopulerlikSkoru,
-                YayinTarihi = i.YayinTarihi
-            }).ToList();
+            var response = icerikler.Select(CreateIcerikListDtoWithMeta).ToList();
 
             return Ok(response);
         }
@@ -482,20 +515,7 @@ namespace Saga.Server.Controllers
                 .Take(limit)
                 .ToListAsync();
 
-            var response = icerikler.Select(i => new IcerikListDto
-            {
-                Id = i.Id,
-                Baslik = i.Baslik,
-                Tur = i.Tur.ToString(),
-                Aciklama = i.Aciklama,
-                PosterUrl = i.PosterUrl,
-                OrtalamaPuan = i.OrtalamaPuan,
-                HariciPuan = i.HariciPuan,
-                HariciOySayisi = i.HariciOySayisi,
-                PuanlamaSayisi = i.PuanlamaSayisi,
-                PopulerlikSkoru = i.PopulerlikSkoru,
-                YayinTarihi = i.YayinTarihi
-            }).ToList();
+            var response = icerikler.Select(CreateIcerikListDtoWithMeta).ToList();
 
             return Ok(response);
         }
@@ -544,20 +564,7 @@ namespace Saga.Server.Controllers
                     .AsNoTracking()
                     .ToListAsync();
 
-                var response = oneriler.Select(i => new IcerikListDto
-                {
-                    Id = i.Id,
-                    Baslik = i.Baslik,
-                    Tur = i.Tur.ToString(),
-                    Aciklama = i.Aciklama,
-                    PosterUrl = i.PosterUrl,
-                    OrtalamaPuan = i.OrtalamaPuan,
-                    HariciPuan = i.HariciPuan,
-                    HariciOySayisi = i.HariciOySayisi,
-                    PuanlamaSayisi = i.PuanlamaSayisi,
-                    PopulerlikSkoru = i.PopulerlikSkoru,
-                    YayinTarihi = i.YayinTarihi
-                }).ToList();
+                var response = oneriler.Select(CreateIcerikListDtoWithMeta).ToList();
 
                 return Ok(response);
             }
@@ -629,7 +636,206 @@ namespace Saga.Server.Controllers
             }
         }
 
+        // GET: api/icerik/{id}/benzer
+        // Akıllı Benzer İçerik Algoritması
+        [HttpGet("{id}/benzer")]
+        public async Task<ActionResult<IEnumerable<IcerikListDto>>> GetBenzerIcerikler(long id, [FromQuery] int limit = 6)
+        {
+            try
+            {
+                var icerik = await _context.Icerikler
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(i => i.Id == id);
+
+                if (icerik == null)
+                {
+                    return NotFound(new { message = "İçerik bulunamadı." });
+                }
+
+                // Türleri parse et
+                var turler = new List<string>();
+                if (!string.IsNullOrEmpty(icerik.MetaVeri) && icerik.MetaVeri != "{}")
+                {
+                    try
+                    {
+                        var metaDoc = JsonDocument.Parse(icerik.MetaVeri);
+                        if (metaDoc.RootElement.TryGetProperty("turler", out var turlerJson) && 
+                            turlerJson.ValueKind == JsonValueKind.Array)
+                        {
+                            foreach (var t in turlerJson.EnumerateArray())
+                            {
+                                var turStr = t.GetString();
+                                if (!string.IsNullOrEmpty(turStr))
+                                    turler.Add(turStr.ToLowerInvariant());
+                            }
+                        }
+                    }
+                    catch { }
+                }
+
+                // Yayın yılını al
+                var yayinYili = icerik.YayinTarihi?.Year;
+
+                // Tüm aday içerikleri çek (aynı ana tür, kendisi hariç)
+                var adaylar = await _context.Icerikler
+                    .AsNoTracking()
+                    .Where(i => i.Id != id && i.Tur == icerik.Tur && !string.IsNullOrEmpty(i.PosterUrl))
+                    .Select(i => new
+                    {
+                        Icerik = i,
+                        MetaVeri = i.MetaVeri
+                    })
+                    .Take(500) // Performans için limit
+                    .ToListAsync();
+
+                // Benzerlik skoru hesapla
+                var skorluAdaylar = adaylar.Select(a =>
+                {
+                    double skor = 0;
+                    var adayTurler = new List<string>();
+
+                    // Türleri parse et
+                    if (!string.IsNullOrEmpty(a.MetaVeri) && a.MetaVeri != "{}")
+                    {
+                        try
+                        {
+                            var metaDoc = JsonDocument.Parse(a.MetaVeri);
+                            if (metaDoc.RootElement.TryGetProperty("turler", out var turlerJson) &&
+                                turlerJson.ValueKind == JsonValueKind.Array)
+                            {
+                                foreach (var t in turlerJson.EnumerateArray())
+                                {
+                                    var turStr = t.GetString();
+                                    if (!string.IsNullOrEmpty(turStr))
+                                        adayTurler.Add(turStr.ToLowerInvariant());
+                                }
+                            }
+                        }
+                        catch { }
+                    }
+
+                    // 1. Tür Eşleşmesi (en önemli - 50 puan max)
+                    if (turler.Any() && adayTurler.Any())
+                    {
+                        var ortakTurler = turler.Intersect(adayTurler).Count();
+                        var toplamTurler = turler.Union(adayTurler).Count();
+                        skor += (ortakTurler * 50.0) / Math.Max(turler.Count, 1);
+                    }
+
+                    // 2. Puan Benzerliği (20 puan max)
+                    if (icerik.OrtalamaPuan > 0 && a.Icerik.OrtalamaPuan > 0)
+                    {
+                        var puanFarki = Math.Abs(icerik.OrtalamaPuan - a.Icerik.OrtalamaPuan);
+                        skor += Math.Max(0, 20 - (double)puanFarki * 4);
+                    }
+                    else if (icerik.HariciPuan > 0 && a.Icerik.HariciPuan > 0)
+                    {
+                        // TMDB puanını kullan (10 üzerinden)
+                        var puanFarki = Math.Abs(icerik.HariciPuan - a.Icerik.HariciPuan);
+                        skor += Math.Max(0, 20 - (double)puanFarki * 2);
+                    }
+
+                    // 3. Yayın Yılı Yakınlığı (15 puan max)
+                    if (yayinYili.HasValue && a.Icerik.YayinTarihi.HasValue)
+                    {
+                        var yilFarki = Math.Abs(yayinYili.Value - a.Icerik.YayinTarihi.Value.Year);
+                        skor += Math.Max(0, 15 - yilFarki);
+                    }
+
+                    // 4. Popülerlik Bonusu (15 puan max)
+                    var popSkor = (double)a.Icerik.PopulerlikSkoru;
+                    skor += Math.Min(15, popSkor / 100.0);
+
+                    return new { a.Icerik, Skor = skor };
+                })
+                .OrderByDescending(x => x.Skor)
+                .Take(limit)
+                .Select(x => x.Icerik)
+                .ToList();
+
+                var result = skorluAdaylar.Select(CreateIcerikListDtoWithMeta);
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Benzer içerikler alınırken hata: {Id}", id);
+                return StatusCode(500, new { message = "Benzer içerikler yüklenirken hata oluştu." });
+            }
+        }
+
         // Helper Methods BaseApiController üzerinden gelmektedir.
+        
+        // Meta veriden süre, sezon, bölüm ve sayfa bilgilerini parse et
+        private static IcerikListDto CreateIcerikListDtoWithMeta(Icerik icerik)
+        {
+            var dto = new IcerikListDto
+            {
+                Id = icerik.Id,
+                Baslik = icerik.Baslik,
+                Tur = icerik.Tur.ToString(),
+                Aciklama = icerik.Aciklama,
+                PosterUrl = icerik.PosterUrl,
+                OrtalamaPuan = icerik.OrtalamaPuan,
+                PuanlamaSayisi = icerik.PuanlamaSayisi,
+                HariciPuan = icerik.HariciPuan,
+                HariciOySayisi = icerik.HariciOySayisi,
+                PopulerlikSkoru = icerik.PopulerlikSkoru,
+                YayinTarihi = icerik.YayinTarihi
+            };
+
+            // Meta veriden ek bilgileri parse et
+            if (!string.IsNullOrEmpty(icerik.MetaVeri) && icerik.MetaVeri != "{}")
+            {
+                try
+                {
+                    var metaDoc = JsonDocument.Parse(icerik.MetaVeri);
+                    var root = metaDoc.RootElement;
+
+                    if (root.TryGetProperty("sure", out var sure) && sure.ValueKind == JsonValueKind.Number)
+                    {
+                        dto.Sure = sure.GetInt32();
+                    }
+
+                    if (root.TryGetProperty("sezonSayisi", out var sezon) && sezon.ValueKind == JsonValueKind.Number)
+                    {
+                        dto.SezonSayisi = sezon.GetInt32();
+                    }
+
+                    if (root.TryGetProperty("bolumSayisi", out var bolum) && bolum.ValueKind == JsonValueKind.Number)
+                    {
+                        dto.BolumSayisi = bolum.GetInt32();
+                    }
+
+                    if (root.TryGetProperty("sayfaSayisi", out var sayfa) && sayfa.ValueKind == JsonValueKind.Number)
+                    {
+                        dto.SayfaSayisi = sayfa.GetInt32();
+                    }
+                }
+                catch
+                {
+                    // Meta veri parse hatası, devam et
+                }
+            }
+
+            // Tip düzeltmesi: Eğer sezon veya bölüm sayısı varsa, bu bir dizi
+            if ((dto.SezonSayisi > 0 || dto.BolumSayisi > 0) && dto.Tur != "Dizi")
+            {
+                dto.Tur = "Dizi";
+            }
+            // Eğer sayfa sayısı varsa, bu bir kitap
+            else if (dto.SayfaSayisi > 0 && dto.Tur != "Kitap")
+            {
+                dto.Tur = "Kitap";
+            }
+            // Eğer film süresi varsa ve sezon/bölüm yoksa, bu bir film
+            else if (dto.Sure > 0 && dto.SezonSayisi == null && dto.BolumSayisi == null && dto.Tur != "Film")
+            {
+                dto.Tur = "Film";
+            }
+
+            return dto;
+        }
     }
 
     // Manual içerik ekleme için DTO (IcerikDtos.cs'e eklenmeli)

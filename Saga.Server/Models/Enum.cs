@@ -11,6 +11,7 @@
     public enum IcerikTuru
     {
         film,
+        dizi,
         kitap
     }
 

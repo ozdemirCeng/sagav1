@@ -2,6 +2,9 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Saga.Server.Services;
 using Saga.Server.DTOs;
+using Saga.Server.Data;
+using Microsoft.EntityFrameworkCore;
+using Saga.Server.Models;
 
 namespace Saga.Server.Controllers
 {
@@ -12,15 +15,50 @@ namespace Saga.Server.Controllers
         private readonly ITmdbService _tmdbService;
         private readonly IGoogleBooksService _googleBooksService;
         private readonly ILogger<ExternalApiController> _logger;
+        private readonly SagaDbContext _context;
 
         public ExternalApiController(
             ITmdbService tmdbService,
             IGoogleBooksService googleBooksService,
-            ILogger<ExternalApiController> logger)
+            ILogger<ExternalApiController> logger,
+            SagaDbContext context)
         {
             _tmdbService = tmdbService;
             _googleBooksService = googleBooksService;
             _logger = logger;
+            _context = context;
+        }
+
+        // SAGA veritabanındaki içeriklerle eşleştirme
+        private async Task EnrichWithSagaRatingsAsync(List<TmdbFilmDto> results)
+        {
+            if (results == null || !results.Any()) return;
+
+            // TMDB ID'lerini topla - veritabanı formatına çevir
+            // Filmler: "123" (prefix yok)
+            // Diziler: "tv:123"
+            var hariciIdler = results.Select(r => 
+            {
+                return r.MediaType == "tv" ? $"tv:{r.Id}" : r.Id;
+            }).ToList();
+
+            // Veritabanından eşleşen içerikleri bul
+            var sagaIcerikler = await _context.Icerikler
+                .Where(i => i.ApiKaynagi == ApiKaynak.tmdb && hariciIdler.Contains(i.HariciId))
+                .Select(i => new { i.HariciId, i.Id, i.OrtalamaPuan })
+                .ToListAsync();
+
+            // Sonuçlarla eşleştir
+            foreach (var result in results)
+            {
+                var hariciId = result.MediaType == "tv" ? $"tv:{result.Id}" : result.Id;
+                var sagaIcerik = sagaIcerikler.FirstOrDefault(s => s.HariciId == hariciId);
+                if (sagaIcerik != null)
+                {
+                    result.SagaOrtalamaPuan = sagaIcerik.OrtalamaPuan;
+                    result.SagaIcerikId = (int)sagaIcerik.Id;
+                }
+            }
         }
 
         // GET: api/externalapi/tmdb/search?q={query}
@@ -34,6 +72,7 @@ namespace Saga.Server.Controllers
             }
 
             var results = await _tmdbService.SearchFilmsAsync(q, sayfa);
+            await EnrichWithSagaRatingsAsync(results);
             return Ok(results);
         }
 
@@ -48,6 +87,7 @@ namespace Saga.Server.Controllers
             }
 
             var results = await _tmdbService.SearchTvShowsAsync(q, sayfa);
+            await EnrichWithSagaRatingsAsync(results);
             return Ok(results);
         }
 
@@ -62,6 +102,7 @@ namespace Saga.Server.Controllers
             }
 
             var results = await _tmdbService.SearchMultiAsync(q, sayfa);
+            await EnrichWithSagaRatingsAsync(results);
             return Ok(results);
         }
 
@@ -99,6 +140,7 @@ namespace Saga.Server.Controllers
         public async Task<ActionResult<List<TmdbFilmDto>>> GetPopularTmdbFilms([FromQuery] int sayfa = 1)
         {
             var films = await _tmdbService.GetPopularFilmsAsync(sayfa);
+            await EnrichWithSagaRatingsAsync(films);
             return Ok(films);
         }
 
@@ -108,6 +150,7 @@ namespace Saga.Server.Controllers
         public async Task<ActionResult<List<TmdbFilmDto>>> GetPopularTmdbTvShows([FromQuery] int sayfa = 1)
         {
             var shows = await _tmdbService.GetPopularTvShowsAsync(sayfa);
+            await EnrichWithSagaRatingsAsync(shows);
             return Ok(shows);
         }
 
@@ -117,6 +160,7 @@ namespace Saga.Server.Controllers
         public async Task<ActionResult<List<TmdbFilmDto>>> GetTopRatedTmdbFilms([FromQuery] int sayfa = 1)
         {
             var films = await _tmdbService.GetTopRatedFilmsAsync(sayfa);
+            await EnrichWithSagaRatingsAsync(films);
             return Ok(films);
         }
 
@@ -126,6 +170,7 @@ namespace Saga.Server.Controllers
         public async Task<ActionResult<List<TmdbFilmDto>>> GetTopRatedTmdbTvShows([FromQuery] int sayfa = 1)
         {
             var shows = await _tmdbService.GetTopRatedTvShowsAsync(sayfa);
+            await EnrichWithSagaRatingsAsync(shows);
             return Ok(shows);
         }
 
@@ -135,6 +180,7 @@ namespace Saga.Server.Controllers
         public async Task<ActionResult<List<TmdbFilmDto>>> GetNowPlayingTmdbFilms([FromQuery] int sayfa = 1)
         {
             var films = await _tmdbService.GetNowPlayingFilmsAsync(sayfa);
+            await EnrichWithSagaRatingsAsync(films);
             return Ok(films);
         }
 
@@ -144,6 +190,7 @@ namespace Saga.Server.Controllers
         public async Task<ActionResult<List<TmdbFilmDto>>> GetOnTheAirTmdbTvShows([FromQuery] int sayfa = 1)
         {
             var shows = await _tmdbService.GetOnTheAirTvShowsAsync(sayfa);
+            await EnrichWithSagaRatingsAsync(shows);
             return Ok(shows);
         }
 
@@ -156,6 +203,7 @@ namespace Saga.Server.Controllers
             [FromQuery] int sayfa = 1)
         {
             var results = await _tmdbService.GetTrendingAsync(mediaType, timeWindow, sayfa);
+            await EnrichWithSagaRatingsAsync(results);
             return Ok(results);
         }
 

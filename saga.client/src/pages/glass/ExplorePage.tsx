@@ -1,58 +1,136 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Search, Film, BookOpen, Star, Loader2, X, Tv, TrendingUp, Clock, Calendar, ChevronDown, ChevronUp, Globe } from 'lucide-react';
-import { externalApi, icerikApi } from '../../services/api';
-import type { TmdbFilm, GoogleBook } from '../../services/api';
+import { 
+  Search, Film, BookOpen, Star, Loader2, X, Tv,
+  ChevronRight, Sparkles, Heart, BadgeCheck,
+  Swords, Ghost, Laugh, Rocket, Wand2, SlidersHorizontal, Layers, User,
+  TrendingUp, Clock, Calendar, ChevronDown, ChevronUp, Globe
+} from 'lucide-react';
+import { externalApi, icerikApi, listeApi, kullaniciApi, kutuphaneApi } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
+import type { TmdbFilm, GoogleBook, PopulerListe, OnerilenKullanici } from '../../services/api';
 import bookQueriesConfig from '../../config/bookQueries.json';
+import { ContentCard, ContentGrid, tmdbToCardData, bookToCardData, normalizeContentType } from '../../components/ui';
+import {
+  getTmdbCache, setTmdbCache, clearTmdbCache,
+  getBookCache, setBookCache, clearBookCache,
+  getExploreDataCache, setExploreDataCache,
+  getScrollCache, setScrollCache
+} from '../../services/exploreCache';
+import './ExplorePage.css';
 
-// ============================================
-// NEBULA UI COMPONENTS
-// ============================================
+type SagaRatingCacheEntry = {
+  saga?: number;
+  harici?: number;
+  updatedAt?: number;
+};
 
-function NebulaCard({ children, className = '' }: { children: React.ReactNode; className?: string }) {
-  return (
-    <div className={`p-5 rounded-2xl bg-[rgba(20,20,35,0.65)] backdrop-blur-xl border border-[rgba(255,255,255,0.08)] shadow-lg ${className}`}>
-      {children}
-    </div>
-  );
+type SagaRatingUpdateDetail = {
+  icerikId: number;
+  saga?: number | null;
+  harici?: number | null;
+};
+
+const sagaRatingsCache = new Map<number, SagaRatingCacheEntry>();
+
+const applySagaRatingUpdate = (detail?: SagaRatingUpdateDetail) => {
+  if (!detail || !detail.icerikId) return;
+  const sagaValue = typeof detail.saga === 'number' ? detail.saga : undefined;
+  const hariciValue = typeof detail.harici === 'number' ? detail.harici : undefined;
+  if (sagaValue === undefined && hariciValue === undefined) {
+    sagaRatingsCache.delete(detail.icerikId);
+    return;
+  }
+  sagaRatingsCache.set(detail.icerikId, {
+    saga: sagaValue,
+    harici: hariciValue,
+    updatedAt: Date.now(),
+  });
+};
+
+let sagaRatingCacheListener: ((event: Event) => void) | null = null;
+
+if (typeof window !== 'undefined' && !sagaRatingCacheListener) {
+  sagaRatingCacheListener = (event: Event) => {
+    const custom = event as CustomEvent<SagaRatingUpdateDetail>;
+    applySagaRatingUpdate(custom.detail);
+  };
+  window.addEventListener('saga-rating-updated', sagaRatingCacheListener as EventListener);
 }
 
-function NebulaButton({ 
-  children, 
-  variant = 'primary',
-  size = 'md',
-  className = '',
-  disabled = false,
-  onClick 
-}: { 
-  children: React.ReactNode; 
-  variant?: 'primary' | 'secondary' | 'ghost';
-  size?: 'sm' | 'md' | 'lg';
-  className?: string;
-  disabled?: boolean;
-  onClick?: (e: React.MouseEvent) => void;
-}) {
-  const baseStyles = 'inline-flex items-center justify-center font-semibold rounded-xl transition-all duration-200 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed';
-  const variantStyles = {
-    primary: 'bg-gradient-to-r from-[#6C5CE7] to-[#a29bfe] text-white hover:shadow-lg hover:shadow-[#6C5CE7]/25',
-    secondary: 'bg-[rgba(255,255,255,0.08)] text-white border border-[rgba(255,255,255,0.1)] hover:bg-[rgba(255,255,255,0.12)]',
-    ghost: 'bg-transparent text-[rgba(255,255,255,0.7)] hover:text-white hover:bg-[rgba(255,255,255,0.05)]'
-  };
-  const sizeStyles = {
-    sm: 'px-3 py-1.5 text-xs gap-1',
-    md: 'px-4 py-2 text-sm gap-2',
-    lg: 'px-6 py-3 text-base gap-2'
-  };
+// ============================================
+// MATCH PERCENTAGE ALGORITHM
+// ============================================
 
-  return (
-    <button 
-      onClick={onClick} 
-      disabled={disabled}
-      className={`${baseStyles} ${variantStyles[variant]} ${sizeStyles[size]} ${className}`}
-    >
-      {children}
-    </button>
-  );
+interface UserPreferences {
+  favoriteGenres: Map<number, number>; // genreId -> weight (izleme/puan sayısı)
+  avgRating: number; // kullanıcının ortalama puanı
+  prefersTv: boolean; // dizi mi film mi tercih ediyor
+  recentYearBias: number; // yeni içerik tercihi (0-1)
+}
+
+// Kullanıcının tercihlerine göre eşleşme yüzdesi hesapla
+function calculateMatchPercentage(
+  film: TmdbFilm,
+  userPrefs: UserPreferences | null,
+  allResults: TmdbFilm[]
+): number {
+  // Kullanıcı giriş yapmamış veya tercih verisi yoksa basit formül
+  if (!userPrefs || userPrefs.favoriteGenres.size === 0) {
+    const rating = film.puan || film.voteAverage || 0;
+    const sagaRating = film.sagaOrtalamaPuan || 0;
+    // Temel formül: TMDB puanı + SAGA puanı + popülerlik
+    const baseScore = (rating * 5) + (sagaRating * 5) + 40;
+    return Math.min(99, Math.max(50, Math.round(baseScore)));
+  }
+
+  let score = 50; // Başlangıç puanı
+
+  // 1. Tür eşleşmesi (max +30 puan)
+  const filmGenres = film.turIds || [];
+  let genreScore = 0;
+  let maxGenreWeight = 0;
+  userPrefs.favoriteGenres.forEach((weight) => {
+    if (weight > maxGenreWeight) maxGenreWeight = weight;
+  });
+  
+  filmGenres.forEach(genreId => {
+    const weight = userPrefs.favoriteGenres.get(genreId) || 0;
+    if (weight > 0 && maxGenreWeight > 0) {
+      genreScore += (weight / maxGenreWeight) * 15; // Her eşleşen tür için max 15 puan
+    }
+  });
+  score += Math.min(30, genreScore);
+
+  // 2. Puan kalitesi (max +20 puan)
+  const rating = film.puan || film.voteAverage || 0;
+  const sagaRating = film.sagaOrtalamaPuan || 0;
+  const combinedRating = sagaRating > 0 ? (rating * 0.4 + sagaRating * 0.6) : rating;
+  score += (combinedRating / 10) * 20;
+
+  // 3. Media type tercihi (max +10 puan)
+  const isTV = film.mediaType === 'tv';
+  if ((userPrefs.prefersTv && isTV) || (!userPrefs.prefersTv && !isTV)) {
+    score += 10;
+  }
+
+  // 4. Yenilik faktörü (max +10 puan)
+  const year = parseInt((film.yayinTarihi || film.releaseDate || '0').split('-')[0]);
+  const currentYear = new Date().getFullYear();
+  if (year >= currentYear - 2) {
+    score += 10 * userPrefs.recentYearBias;
+  } else if (year >= currentYear - 5) {
+    score += 5 * userPrefs.recentYearBias;
+  }
+
+  // 5. Göreceli popülerlik (max +10 puan)
+  // En yüksek puanlı içerikle karşılaştır
+  const maxRating = Math.max(...allResults.map(f => f.puan || f.voteAverage || 0));
+  if (maxRating > 0) {
+    score += (rating / maxRating) * 10;
+  }
+
+  return Math.min(99, Math.max(40, Math.round(score)));
 }
 
 // ============================================
@@ -133,6 +211,9 @@ const GENRE_MAPPING: { [key: number]: number[] } = {
 };
 
 interface FilterPanelProps {
+  // Modal kontrolü
+  isOpen: boolean;
+  onClose: () => void;
   // Tab
   activeTab: 'tmdb' | 'kitaplar';
   // TMDB filtreleri
@@ -161,6 +242,8 @@ interface FilterPanelProps {
 }
 
 function FilterPanel({
+  isOpen,
+  onClose,
   activeTab,
   tmdbFilter,
   onTmdbFilterChange,
@@ -183,13 +266,13 @@ function FilterPanel({
   onApply,
   onReset,
 }: FilterPanelProps) {
+  // Collapsible sections state
   const [showGenres, setShowGenres] = useState(true);
   const [showYearFilter, setShowYearFilter] = useState(true);
   const [showRatingFilter, setShowRatingFilter] = useState(true);
   const [showBookCategories, setShowBookCategories] = useState(true);
-  
+
   // Aktif tab'a göre tür listesi
-  // "Tümü" seçiliyken sadece ortak türleri göster
   const genres = tmdbFilter === 'all' ? COMBINED_GENRES : tmdbFilter === 'tv' ? TV_GENRES : FILM_GENRES;
 
   const toggleGenre = (genreId: number) => {
@@ -205,99 +288,229 @@ function FilterPanel({
     minYear, 
     maxYear, 
     minPuan, 
-    selectedGenres.length > 0 ? selectedGenres : null
+    selectedGenres.length > 0 ? selectedGenres : null,
+    bookCategory !== 'all' ? bookCategory : null,
+    bookLang !== 'all' ? bookLang : null
   ].filter(Boolean).length;
 
+  // ESC tuşu ile kapatma
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    if (isOpen) {
+      document.addEventListener('keydown', handleEsc);
+      document.body.style.overflow = 'hidden';
+    }
+    return () => {
+      document.removeEventListener('keydown', handleEsc);
+      document.body.style.overflow = '';
+    };
+  }, [isOpen, onClose]);
+
+  // Uygula ve kapat
+  const handleApplyAndClose = () => {
+    onApply();
+    onClose();
+  };
+
+  if (!isOpen) return null;
+
   return (
-    <div className="w-[300px] flex-shrink-0 sticky top-0 h-screen overflow-y-auto hide-scrollbar p-4">
-      <div className="space-y-4">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-bold text-white">Filtreler</h3>
+    <div 
+      style={{
+        position: 'fixed',
+        top: '80px',
+        right: '20px',
+        bottom: '100px',
+        width: '300px',
+        background: 'rgba(17,17,21,0.95)',
+        border: '1px solid rgba(212,168,83,0.2)',
+        borderRadius: '16px',
+        zIndex: 100,
+        display: 'flex',
+        flexDirection: 'column',
+        boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+        backdropFilter: 'blur(20px)'
+      }}
+    >
+      {/* Header */}
+      <div style={{ 
+        padding: '16px 20px',
+        borderBottom: '1px solid rgba(255,255,255,0.06)',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <SlidersHorizontal size={16} style={{ color: '#d4a853' }} />
+          <span style={{ fontSize: '14px', fontWeight: 600, color: '#fff' }}>Filtreler</span>
           {activeFilterCount > 0 && (
-            <button
-              onClick={onReset}
-              className="text-xs text-[#fd79a8] hover:text-[#fd79a8]/80 transition-colors"
-            >
-              Temizle ({activeFilterCount})
-            </button>
+            <span style={{ 
+              background: '#d4a853', 
+              color: '#000', 
+              fontSize: '10px', 
+              fontWeight: 600, 
+              padding: '2px 6px', 
+              borderRadius: '10px' 
+            }}>
+              {activeFilterCount}
+            </span>
           )}
         </div>
+        <button 
+          onClick={onClose}
+          style={{ 
+            background: 'rgba(255,255,255,0.05)', 
+            border: 'none', 
+            borderRadius: '8px',
+            color: 'rgba(255,255,255,0.5)', 
+            cursor: 'pointer', 
+            padding: '6px',
+            display: 'flex'
+          }}
+        >
+          <X size={16} />
+        </button>
+      </div>
 
-        {/* TMDB Tab Filtreleri */}
+      {/* Content */}
+      <div style={{ 
+        flex: 1, 
+        padding: '16px 20px', 
+        overflowY: 'auto',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '16px'
+      }}>
+        {/* TMDB Filtreleri */}
         {activeTab === 'tmdb' && (
           <>
             {/* Medya Türü */}
-            <div className="glass-panel p-4 space-y-3">
-              <p className="text-xs text-[#8E8E93] uppercase tracking-wider font-medium">Medya Türü</p>
-              <div className="flex flex-wrap gap-2">
+            <div style={{ 
+              background: 'rgba(255,255,255,0.03)', 
+              borderRadius: '12px', 
+              padding: '14px',
+              border: '1px solid rgba(255,255,255,0.05)'
+            }}>
+              <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                Medya Türü
+              </div>
+              <div style={{ display: 'flex', gap: '6px' }}>
                 {[
-                  { id: 'all', label: 'Tümü', icon: <Star size={12} /> },
-                  { id: 'movie', label: 'Film', icon: <Film size={12} /> },
-                  { id: 'tv', label: 'Dizi', icon: <Tv size={12} /> },
-                ].map((f) => (
+                  { value: 'all', label: 'Tümü', icon: <Star size={12} /> },
+                  { value: 'movie', label: 'Film', icon: <Film size={12} /> },
+                  { value: 'tv', label: 'Dizi', icon: <Tv size={12} /> }
+                ].map((item) => (
                   <button
-                    key={f.id}
-                    onClick={() => onTmdbFilterChange(f.id as any)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                      tmdbFilter === f.id
-                        ? 'bg-[#6C5CE7] text-white'
-                        : 'bg-white/5 text-[#8E8E93] hover:bg-white/10'
-                    }`}
+                    key={item.value}
+                    onClick={() => onTmdbFilterChange(item.value as 'all' | 'movie' | 'tv')}
+                    style={{
+                      flex: 1,
+                      padding: '8px 12px',
+                      borderRadius: '8px',
+                      border: tmdbFilter === item.value ? '1px solid #d4a853' : '1px solid rgba(255,255,255,0.08)',
+                      background: tmdbFilter === item.value ? 'rgba(212,168,83,0.15)' : 'transparent',
+                      color: tmdbFilter === item.value ? '#d4a853' : 'rgba(255,255,255,0.6)',
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                      fontWeight: 500,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '4px'
+                    }}
                   >
-                    {f.icon}
-                    {f.label}
+                    {item.icon}
+                    {item.label}
                   </button>
                 ))}
               </div>
             </div>
 
             {/* Sıralama */}
-            <div className="glass-panel p-4 space-y-3">
-              <p className="text-xs text-[#8E8E93] uppercase tracking-wider font-medium">Sıralama</p>
-              <div className="flex flex-wrap gap-2">
+            <div style={{ 
+              background: 'rgba(255,255,255,0.03)', 
+              borderRadius: '12px', 
+              padding: '14px',
+              border: '1px solid rgba(255,255,255,0.05)'
+            }}>
+              <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                Sıralama
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                 {[
-                  { id: 'popular', label: 'Popüler', icon: <TrendingUp size={12} /> },
-                  { id: 'top_rated', label: 'En Yüksek Puan', icon: <Star size={12} /> },
-                  { id: 'trending', label: 'Trend', icon: <TrendingUp size={12} /> },
-                  { id: 'now_playing', label: tmdbFilter === 'tv' ? 'Yayında' : 'Vizyonda', icon: <Clock size={12} /> },
-                ].map((s) => (
+                  { value: 'popular', label: 'Popüler', icon: <TrendingUp size={12} /> },
+                  { value: 'top_rated', label: 'En İyi', icon: <Star size={12} /> },
+                  { value: 'trending', label: 'Trend', icon: <TrendingUp size={12} /> },
+                  { value: 'now_playing', label: tmdbFilter === 'tv' ? 'Yayında' : 'Vizyonda', icon: <Clock size={12} /> }
+                ].map((item) => (
                   <button
-                    key={s.id}
-                    onClick={() => onTmdbSortChange(s.id as any)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                      tmdbSort === s.id
-                        ? 'bg-[#00CEC9] text-white'
-                        : 'bg-white/5 text-[#8E8E93] hover:bg-white/10'
-                    }`}
+                    key={item.value}
+                    onClick={() => onTmdbSortChange(item.value as 'popular' | 'top_rated' | 'trending' | 'now_playing')}
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: '6px',
+                      border: tmdbSort === item.value ? '1px solid #d4a853' : '1px solid rgba(255,255,255,0.08)',
+                      background: tmdbSort === item.value ? 'rgba(212,168,83,0.15)' : 'transparent',
+                      color: tmdbSort === item.value ? '#d4a853' : 'rgba(255,255,255,0.6)',
+                      cursor: 'pointer',
+                      fontSize: '11px',
+                      fontWeight: 500,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}
                   >
-                    {s.icon}
-                    {s.label}
+                    {item.icon}
+                    {item.label}
                   </button>
                 ))}
               </div>
             </div>
 
             {/* Türler */}
-            <div className="glass-panel p-4 space-y-3">
+            <div style={{ 
+              background: 'rgba(255,255,255,0.03)', 
+              borderRadius: '12px', 
+              padding: '14px',
+              border: '1px solid rgba(255,255,255,0.05)'
+            }}>
               <button
                 onClick={() => setShowGenres(!showGenres)}
-                className="w-full flex items-center justify-between text-xs text-[#8E8E93] uppercase tracking-wider font-medium"
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: 0,
+                  marginBottom: showGenres ? '10px' : 0
+                }}
               >
-                <span>Türler {selectedGenres.length > 0 && `(${selectedGenres.length})`}</span>
-                {showGenres ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Türler {selectedGenres.length > 0 && `(${selectedGenres.length})`}
+                </span>
+                {showGenres ? <ChevronUp size={14} style={{ color: 'rgba(255,255,255,0.4)' }} /> : <ChevronDown size={14} style={{ color: 'rgba(255,255,255,0.4)' }} />}
               </button>
               {showGenres && (
-                <div className="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto">
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', maxHeight: '150px', overflowY: 'auto' }}>
                   {genres.map((genre) => (
                     <button
                       key={genre.id}
                       onClick={() => toggleGenre(genre.id)}
-                      className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-all ${
-                        selectedGenres.includes(genre.id)
-                          ? 'bg-[#6C5CE7] text-white'
-                          : 'bg-white/5 text-[#8E8E93] hover:bg-white/10'
-                      }`}
+                      style={{
+                        padding: '5px 10px',
+                        borderRadius: '20px',
+                        border: selectedGenres.includes(genre.id) ? '1px solid #d4a853' : '1px solid rgba(255,255,255,0.08)',
+                        background: selectedGenres.includes(genre.id) ? 'rgba(212,168,83,0.15)' : 'transparent',
+                        color: selectedGenres.includes(genre.id) ? '#d4a853' : 'rgba(255,255,255,0.5)',
+                        cursor: 'pointer',
+                        fontSize: '11px',
+                        fontWeight: 500
+                      }}
                     >
                       {genre.name}
                     </button>
@@ -308,32 +521,52 @@ function FilterPanel({
           </>
         )}
 
-        {/* Kitap Tab Filtreleri */}
+        {/* Kitap Filtreleri */}
         {activeTab === 'kitaplar' && (
           <>
             {/* Kitap Kategorileri */}
-            <div className="glass-panel p-4 space-y-3">
+            <div style={{ 
+              background: 'rgba(255,255,255,0.03)', 
+              borderRadius: '12px', 
+              padding: '14px',
+              border: '1px solid rgba(255,255,255,0.05)'
+            }}>
               <button
                 onClick={() => setShowBookCategories(!showBookCategories)}
-                className="w-full flex items-center justify-between text-xs text-[#8E8E93] uppercase tracking-wider font-medium"
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: 0,
+                  marginBottom: showBookCategories ? '10px' : 0
+                }}
               >
-                <span className="flex items-center gap-2">
-                  <BookOpen size={12} className="text-[#00b894]" />
+                <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <BookOpen size={12} style={{ color: '#d4a853' }} />
                   Kategori
                 </span>
-                {showBookCategories ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                {showBookCategories ? <ChevronUp size={14} style={{ color: 'rgba(255,255,255,0.4)' }} /> : <ChevronDown size={14} style={{ color: 'rgba(255,255,255,0.4)' }} />}
               </button>
               {showBookCategories && (
-                <div className="flex flex-wrap gap-1.5 max-h-64 overflow-y-auto">
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', maxHeight: '180px', overflowY: 'auto' }}>
                   {bookCategories.map((cat) => (
                     <button
                       key={cat.value}
                       onClick={() => onBookCategoryChange(cat.value)}
-                      className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all ${
-                        bookCategory === cat.value
-                          ? 'bg-[#00b894] text-white'
-                          : 'bg-white/5 text-[#8E8E93] hover:bg-white/10'
-                      }`}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: '8px',
+                        border: bookCategory === cat.value ? '1px solid #d4a853' : '1px solid rgba(255,255,255,0.08)',
+                        background: bookCategory === cat.value ? 'rgba(212,168,83,0.15)' : 'transparent',
+                        color: bookCategory === cat.value ? '#d4a853' : 'rgba(255,255,255,0.5)',
+                        cursor: 'pointer',
+                        fontSize: '11px',
+                        fontWeight: 500
+                      }}
                     >
                       {cat.label}
                     </button>
@@ -341,24 +574,33 @@ function FilterPanel({
                 </div>
               )}
             </div>
-            
-            {/* Sıralama */}
+
             {/* Dil Filtresi */}
-            <div className="glass-panel p-4 space-y-3">
-              <p className="text-xs text-[#8E8E93] uppercase tracking-wider font-medium flex items-center gap-2">
-                <Globe size={12} className="text-[#fd79a8]" />
+            <div style={{ 
+              background: 'rgba(255,255,255,0.03)', 
+              borderRadius: '12px', 
+              padding: '14px',
+              border: '1px solid rgba(255,255,255,0.05)'
+            }}>
+              <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Globe size={12} style={{ color: '#d4a853' }} />
                 Dil
-              </p>
-              <div className="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto">
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                 {bookLanguages.map((lang) => (
                   <button
                     key={lang.value}
                     onClick={() => onBookLangChange(lang.value)}
-                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all ${
-                      bookLang === lang.value
-                        ? 'bg-[#fd79a8] text-white'
-                        : 'bg-white/5 text-[#8E8E93] hover:bg-white/10'
-                    }`}
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: '8px',
+                      border: bookLang === lang.value ? '1px solid #d4a853' : '1px solid rgba(255,255,255,0.08)',
+                      background: bookLang === lang.value ? 'rgba(212,168,83,0.15)' : 'transparent',
+                      color: bookLang === lang.value ? '#d4a853' : 'rgba(255,255,255,0.5)',
+                      cursor: 'pointer',
+                      fontSize: '11px',
+                      fontWeight: 500
+                    }}
                   >
                     {lang.label}
                   </button>
@@ -369,29 +611,43 @@ function FilterPanel({
         )}
 
         {/* Yıl Filtresi - Tüm tablar için */}
-        <div className="glass-panel p-4 space-y-3">
+        <div style={{ 
+          background: 'rgba(255,255,255,0.03)', 
+          borderRadius: '12px', 
+          padding: '14px',
+          border: '1px solid rgba(255,255,255,0.05)'
+        }}>
           <button
             onClick={() => setShowYearFilter(!showYearFilter)}
-            className="w-full flex items-center justify-between text-xs text-[#8E8E93] uppercase tracking-wider font-medium"
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              padding: 0,
+              marginBottom: showYearFilter ? '10px' : 0
+            }}
           >
-            <span className="flex items-center gap-2">
-              <Calendar size={12} className="text-[#6C5CE7]" />
+            <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Calendar size={12} style={{ color: '#d4a853' }} />
               Yayın Yılı
             </span>
-            {showYearFilter ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            {showYearFilter ? <ChevronUp size={14} style={{ color: 'rgba(255,255,255,0.4)' }} /> : <ChevronDown size={14} style={{ color: 'rgba(255,255,255,0.4)' }} />}
           </button>
           {showYearFilter && (
-            <div className="space-y-3">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {/* Hızlı Seçim */}
-              <div className="flex flex-wrap gap-1.5">
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                 {[
                   { label: 'Tümü', min: null, max: null },
                   { label: '2024', min: 2024, max: 2024 },
                   { label: '2023', min: 2023, max: 2023 },
-                  { label: '2020-2024', min: 2020, max: 2024 },
-                  { label: '2010-2019', min: 2010, max: 2019 },
-                  { label: '2000-2009', min: 2000, max: 2009 },
-                  { label: 'Klasik (<2000)', min: null, max: 1999 },
+                  { label: '2020-24', min: 2020, max: 2024 },
+                  { label: '2010-19', min: 2010, max: 2019 },
+                  { label: 'Klasik', min: null, max: 1999 },
                 ].map((preset) => (
                   <button
                     key={preset.label}
@@ -399,18 +655,23 @@ function FilterPanel({
                       onMinYearChange(preset.min);
                       onMaxYearChange(preset.max);
                     }}
-                    className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-all ${
-                      minYear === preset.min && maxYear === preset.max
-                        ? 'bg-[#6C5CE7] text-white'
-                        : 'bg-white/5 text-[#8E8E93] hover:bg-white/10'
-                    }`}
+                    style={{
+                      padding: '5px 10px',
+                      borderRadius: '20px',
+                      border: minYear === preset.min && maxYear === preset.max ? '1px solid #d4a853' : '1px solid rgba(255,255,255,0.08)',
+                      background: minYear === preset.min && maxYear === preset.max ? 'rgba(212,168,83,0.15)' : 'transparent',
+                      color: minYear === preset.min && maxYear === preset.max ? '#d4a853' : 'rgba(255,255,255,0.5)',
+                      cursor: 'pointer',
+                      fontSize: '11px',
+                      fontWeight: 500
+                    }}
                   >
                     {preset.label}
                   </button>
                 ))}
               </div>
               {/* Custom Range */}
-              <div className="flex items-center gap-2">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <input
                   type="number"
                   placeholder="Min"
@@ -418,9 +679,18 @@ function FilterPanel({
                   max="2025"
                   value={minYear || ''}
                   onChange={(e) => onMinYearChange(e.target.value ? parseInt(e.target.value) : null)}
-                  className="w-full bg-white/5 text-white text-xs rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[#6C5CE7]/50 border border-white/10 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  style={{
+                    flex: 1,
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    background: 'rgba(255,255,255,0.05)',
+                    color: '#fff',
+                    fontSize: '12px',
+                    outline: 'none'
+                  }}
                 />
-                <span className="text-[#8E8E93] text-xs">-</span>
+                <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: '12px' }}>-</span>
                 <input
                   type="number"
                   placeholder="Max"
@@ -428,7 +698,16 @@ function FilterPanel({
                   max="2025"
                   value={maxYear || ''}
                   onChange={(e) => onMaxYearChange(e.target.value ? parseInt(e.target.value) : null)}
-                  className="w-full bg-white/5 text-white text-xs rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[#6C5CE7]/50 border border-white/10 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  style={{
+                    flex: 1,
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    background: 'rgba(255,255,255,0.05)',
+                    color: '#fff',
+                    fontSize: '12px',
+                    outline: 'none'
+                  }}
                 />
               </div>
             </div>
@@ -436,28 +715,48 @@ function FilterPanel({
         </div>
 
         {/* Puan Filtresi */}
-        <div className="glass-panel p-4 space-y-3">
+        <div style={{ 
+          background: 'rgba(255,255,255,0.03)', 
+          borderRadius: '12px', 
+          padding: '14px',
+          border: '1px solid rgba(255,255,255,0.05)'
+        }}>
           <button
             onClick={() => setShowRatingFilter(!showRatingFilter)}
-            className="w-full flex items-center justify-between text-xs text-[#8E8E93] uppercase tracking-wider font-medium"
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              padding: 0,
+              marginBottom: showRatingFilter ? '10px' : 0
+            }}
           >
-            <span className="flex items-center gap-2">
-              <Star size={12} className="text-[#f39c12]" />
+            <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Star size={12} style={{ color: '#d4a853' }} />
               Minimum Puan
             </span>
-            {showRatingFilter ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            {showRatingFilter ? <ChevronUp size={14} style={{ color: 'rgba(255,255,255,0.4)' }} /> : <ChevronDown size={14} style={{ color: 'rgba(255,255,255,0.4)' }} />}
           </button>
           {showRatingFilter && (
-            <div className="flex flex-wrap gap-1.5">
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
               {[null, 5, 6, 7, 8, 9].map((puan) => (
                 <button
                   key={puan ?? 'all'}
                   onClick={() => onMinPuanChange(puan)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                    minPuan === puan
-                      ? 'bg-[#f39c12]/20 text-[#f39c12] border border-[#f39c12]/30'
-                      : 'bg-white/5 text-[#8E8E93] border border-transparent hover:bg-white/10'
-                  }`}
+                  style={{
+                    padding: '8px 10px',
+                    borderRadius: '8px',
+                    border: minPuan === puan ? '1px solid #d4a853' : '1px solid rgba(255,255,255,0.08)',
+                    background: minPuan === puan ? 'rgba(212,168,83,0.15)' : 'transparent',
+                    color: minPuan === puan ? '#d4a853' : 'rgba(255,255,255,0.5)',
+                    cursor: 'pointer',
+                    fontSize: '11px',
+                    fontWeight: 600
+                  }}
                 >
                   {puan ? `${puan}+` : 'Tümü'}
                 </button>
@@ -465,128 +764,47 @@ function FilterPanel({
             </div>
           )}
         </div>
-
-        {/* Uygula Butonu */}
-        {activeFilterCount > 0 && (
-          <button
-            onClick={onApply}
-            className="w-full py-3 rounded-xl bg-gradient-to-r from-[#6C5CE7] to-[#00CEC9] text-white font-semibold text-sm hover:shadow-lg hover:shadow-[#6C5CE7]/25 transition-all"
-          >
-            Filtreleri Uygula
-          </button>
-        )}
       </div>
-    </div>
-  );
-}
 
-// ============================================
-// EXTERNAL API CARD (TMDB / Google Books)
-// ============================================
-
-interface ExternalCardProps {
-  item: TmdbFilm | GoogleBook;
-  type: 'film' | 'kitap' | 'tv';
-  onImport: () => void;
-  importing?: boolean;
-  dbId?: number; // Veritabanından gelen içerik için ID
-  onNavigate?: (id: number) => void; // Veritabanı içeriğine tıklama
-}
-
-function ExternalCard({ item, type, onImport, importing, dbId, onNavigate }: ExternalCardProps) {
-  const isTmdb = type === 'film' || type === 'tv';
-  const film = item as TmdbFilm;
-  const book = item as GoogleBook;
-  
-  // Veritabanından gelen içerik mi?
-  const isDbItem = dbId !== undefined;
-
-  // Backend Türkçe alan adları kullanıyor (posterUrl, baslik, puan)
-  // HTTP URL'leri HTTPS'e çevir
-  let posterUrl: string | undefined;
-  if (isTmdb) {
-    // Backend posterUrl tam URL döndürüyor, posterPath ise sadece path
-    posterUrl = film.posterUrl || (film.posterPath
-      ? `https://image.tmdb.org/t/p/w300${film.posterPath}`
-      : undefined);
-  } else {
-    const rawUrl = book.posterUrl || book.thumbnail;
-    posterUrl = rawUrl?.replace('http://', 'https://');
-  }
-
-  const title = isTmdb ? (film.baslik || film.title) : (book.baslik || book.title);
-  const rating = isTmdb ? (film.puan || film.voteAverage) : (book.ortalamaPuan || book.averageRating);
-  const year = isTmdb
-    ? (film.yayinTarihi || film.releaseDate)?.split('-')[0]
-    : (book.yayinTarihi || book.publishedDate)?.split('-')[0];
-  
-  // Media type belirleme
-  const mediaType = isTmdb ? (film.mediaType || type) : 'kitap';
-  const displayType = mediaType === 'tv' ? 'Dizi' : mediaType === 'movie' ? 'Film' : type === 'kitap' ? 'Kitap' : 'Film';
-
-  return (
-    <div 
-      className={`group ${isDbItem ? 'cursor-pointer' : ''}`}
-      onClick={isDbItem && dbId && onNavigate ? () => onNavigate(dbId) : undefined}
-    >
-      <div className="relative aspect-[2/3] rounded-xl overflow-hidden mb-2 bg-white/5">
-        {posterUrl ? (
-          <img
-            src={posterUrl}
-            alt={title}
-            className="w-full h-full object-cover"
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center">
-            {type === 'tv' ? (
-              <Tv size={40} className="text-[#8E8E93]" />
-            ) : type === 'film' ? (
-              <Film size={40} className="text-[#8E8E93]" />
-            ) : (
-              <BookOpen size={40} className="text-[#8E8E93]" />
-            )}
-          </div>
-        )}
-        {rating !== undefined && rating > 0 && (
-          <div className="absolute top-2 right-2 flex items-center gap-1 bg-[#6C5CE7]/20 backdrop-blur-md px-1.5 py-0.5 rounded-md">
-            <Star size={10} className="text-[#6C5CE7] fill-[#6C5CE7]" />
-            <span className="text-xs text-white font-semibold">{rating.toFixed(1)}</span>
-          </div>
-        )}
-
-        {/* Media type badge */}
-        {isTmdb && mediaType === 'tv' && (
-          <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-[#00CEC9]/80 text-white text-xs font-medium">
-            Dizi
-          </div>
-        )}
-        {/* Import overlay - sadece harici içerikler için */}
-        {!isDbItem && (
-          <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-            <NebulaButton
-              size="sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                onImport();
-              }}
-              disabled={importing}
-            >
-              {importing ? <Loader2 size={14} className="animate-spin" /> : 'Ekle'}
-            </NebulaButton>
-          </div>
-        )}
-      </div>
-      <h3 className="font-medium text-white text-sm line-clamp-2">{title}</h3>
-      <div className="flex items-center gap-2 mt-1">
-        {type === 'tv' ? (
-          <Tv size={12} className="text-[#00CEC9]" />
-        ) : type === 'film' ? (
-          <Film size={12} className="text-[#6C5CE7]" />
-        ) : (
-          <BookOpen size={12} className="text-[#8E8E93]" />
-        )}
-        <span className="text-xs text-[#8E8E93]">{displayType}</span>
-        {year && <span className="text-xs text-[#8E8E93]">• {year}</span>}
+      {/* Footer */}
+      <div style={{ 
+        padding: '12px 20px',
+        borderTop: '1px solid rgba(255,255,255,0.06)',
+        display: 'flex',
+        gap: '8px'
+      }}>
+        <button 
+          onClick={onReset}
+          style={{ 
+            flex: 1, 
+            padding: '10px', 
+            borderRadius: '8px', 
+            background: 'transparent', 
+            border: '1px solid rgba(255,255,255,0.1)', 
+            color: 'rgba(255,255,255,0.6)',
+            cursor: 'pointer',
+            fontSize: '12px',
+            fontWeight: 500
+          }}
+        >
+          Temizle
+        </button>
+        <button 
+          onClick={handleApplyAndClose}
+          style={{ 
+            flex: 1, 
+            padding: '10px', 
+            borderRadius: '8px', 
+            background: 'linear-gradient(135deg, #d4a853 0%, #a68532 100%)', 
+            border: 'none', 
+            color: '#000',
+            cursor: 'pointer',
+            fontSize: '12px',
+            fontWeight: 600
+          }}
+        >
+          Uygula
+        </button>
       </div>
     </div>
   );
@@ -652,6 +870,155 @@ function parseYearFromDate(dateStr: string | undefined): number {
 export default function ExplorePage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const { user } = useAuth();
+
+  // Kullanıcı tercihleri state'i
+  const [userPreferences, setUserPreferences] = useState<UserPreferences | null>(null);
+  // Kullanıcının izlediği/kütüphanesindeki içerik ID'leri (harici ID'ler - TMDB ID)
+  const [userWatchedIds, setUserWatchedIds] = useState<Set<string>>(new Set());
+
+  // Body background override for void theme
+  useEffect(() => {
+    const originalBg = document.body.style.background;
+    document.body.style.background = '#030304';
+    return () => {
+      document.body.style.background = originalBg;
+    };
+  }, []);
+
+  // Kullanıcı tercihlerini yükle (kütüphane ve izleme geçmişinden)
+  useEffect(() => {
+    const loadUserPreferences = async () => {
+      if (!user?.id) {
+        setUserPreferences(null);
+        setUserWatchedIds(new Set());
+        return;
+      }
+
+      try {
+        // Kullanıcının kütüphanesini çek
+        const kutuphane = await kutuphaneApi.getKutuphane(user.id, { limit: 200 });
+        
+        // İzlenen içeriklerin harici ID'lerini topla
+        const watchedIds = new Set<string>();
+        
+        if (!kutuphane || kutuphane.length === 0) {
+          setUserPreferences(null);
+          setUserWatchedIds(watchedIds);
+          return;
+        }
+
+        // Tür tercihlerini analiz et
+        const genreWeights = new Map<number, number>();
+        let totalRating = 0;
+        let ratingCount = 0;
+        let tvCount = 0;
+        let movieCount = 0;
+        let recentCount = 0;
+        let totalCount = 0;
+        const currentYear = new Date().getFullYear();
+
+        for (const item of kutuphane) {
+          // İçerik ID'sini kaydet (sagaIcerikId ile eşleşecek)
+          if (item.icerikId) {
+            watchedIds.add(String(item.icerikId));
+          }
+          
+          if (item.icerik) {
+            totalCount++;
+            
+            // Tür analizi - içeriğin türlerini kontrol et
+            // Not: Backend'den turIds gelmiyorsa içerik detayından çekmemiz gerekebilir
+            // Şimdilik basit bir yaklaşım kullanalım
+            
+            // Puan ortalaması
+            if (item.ortalamaPuan && item.ortalamaPuan > 0) {
+              totalRating += item.ortalamaPuan;
+              ratingCount++;
+            }
+
+            // Media type tercihi
+            if (item.tur === 'dizi') {
+              tvCount++;
+            } else {
+              movieCount++;
+            }
+
+            // Yenilik tercihi - güncelleme zamanına bak
+            const updateYear = item.guncellemeZamani 
+              ? new Date(item.guncellemeZamani).getFullYear() 
+              : currentYear;
+            if (updateYear >= currentYear - 1) {
+              recentCount++;
+            }
+          }
+        }
+        
+        setUserWatchedIds(watchedIds);
+
+        // Tercihleri hesapla
+        const prefs: UserPreferences = {
+          favoriteGenres: genreWeights,
+          avgRating: ratingCount > 0 ? totalRating / ratingCount : 7,
+          prefersTv: tvCount > movieCount,
+          recentYearBias: totalCount > 0 ? Math.min(1, recentCount / totalCount + 0.3) : 0.5,
+        };
+
+        setUserPreferences(prefs);
+      } catch (error) {
+        console.error('Kullanıcı tercihleri yüklenemedi:', error);
+        setUserPreferences(null);
+        setUserWatchedIds(new Set());
+      }
+    };
+
+    loadUserPreferences();
+  }, [user?.id]);
+
+  // Kullanıcının takip ettiklerini yükle
+  useEffect(() => {
+    const loadTakipEdilenler = async () => {
+      if (!user?.id) {
+        setTakipEdilenIds(new Set());
+        return;
+      }
+      try {
+        const takipEdilenler = await kullaniciApi.getTakipEdilenler(user.id.toString());
+        const ids = new Set(takipEdilenler.map(k => k.id));
+        setTakipEdilenIds(ids);
+      } catch (error) {
+        console.error('Takip edilenler yüklenemedi:', error);
+      }
+    };
+    loadTakipEdilenler();
+  }, [user?.id]);
+
+  // Keşfet sayfası ek verilerini yükle (popüler listeler, önerilen kullanıcılar)
+  useEffect(() => {
+    const loadKesfetData = async () => {
+      // Cache'den veri varsa API çağrısı yapma
+      const cachedExploreData = getExploreDataCache();
+      if (cachedExploreData) {
+        setPopulerListeler(cachedExploreData.populerListeler);
+        setOnerilenKullanicilar(cachedExploreData.onerilenKullanicilar);
+        return;
+      }
+      try {
+        const [listeler, kullanicilar] = await Promise.all([
+          listeApi.getPopuler(6).catch(() => []),
+          kullaniciApi.getOnerilenler(5).catch(() => []),
+        ]);
+        setPopulerListeler(listeler);
+        setOnerilenKullanicilar(kullanicilar);
+        
+        // Cache'e kaydet
+        setExploreDataCache(listeler, kullanicilar);
+      } catch (error) {
+        console.error('Keşfet verileri yüklenemedi:', error);
+      }
+    };
+    loadKesfetData();
+  }, []);
 
   // URL'den state'leri oku (sayfa geri dönüşünde korunması için)
   const initialTab = (searchParams.get('tab') as 'tmdb' | 'kitaplar') || 'tmdb';
@@ -664,24 +1031,39 @@ export default function ExplorePage() {
   const initialMaxYear = searchParams.get('maxYear') ? parseInt(searchParams.get('maxYear')!) : null;
   const initialMinPuan = searchParams.get('minPuan') ? parseInt(searchParams.get('minPuan')!) : null;
 
+  // In-memory cache'den sonuçları oku - initial değerlerden sonra tanımlanmalı
+  const tmdbCacheData = getTmdbCache(initialTmdbFilter, initialTmdbSort);
+  const bookCacheData = getBookCache(initialBookCategory, initialBookLang);
+  
+  // Cache'den veri geldiyse başlangıç değerlerini ayarla
+  const hasCache = (tmdbCacheData !== null && tmdbCacheData.results.length > 0) || 
+                   (bookCacheData !== null && bookCacheData.results.length > 0);
+  
+  // Cache'den sayfa ve index değerlerini al
+  const initialTmdbPage = tmdbCacheData?.page || 1;
+  const initialBookStartIndex = bookCacheData?.startIndex || 0;
+  const initialQueryIndex = bookCacheData?.queryIndex || 0;
+
   // States
   const [searchQuery, setSearchQuery] = useState(initialQuery);
+  const previousSearchValue = useRef(searchQuery);
   const [activeTab, setActiveTab] = useState<'tmdb' | 'kitaplar'>(initialTab);
 
   // TMDB filters
   const [tmdbFilter, setTmdbFilter] = useState<'all' | 'movie' | 'tv'>(initialTmdbFilter);
   const [tmdbSort, setTmdbSort] = useState<'popular' | 'top_rated' | 'trending' | 'now_playing'>(initialTmdbSort);
-  const [tmdbPage, setTmdbPage] = useState(1);
-  const [tmdbHasMore, setTmdbHasMore] = useState(true);
+  const [tmdbPage, setTmdbPage] = useState(initialTmdbPage);
+  const [tmdbHasMore, setTmdbHasMore] = useState(tmdbCacheData?.hasMore ?? true);
   const [tmdbLoadingMore, setTmdbLoadingMore] = useState(false);
   const tmdbLoadingRef = useRef(false);
+  const tmdbDataLoadedRef = useRef(hasCache && tmdbCacheData !== null);
 
   // Kitap filters
   const [bookLang, setBookLang] = useState<string>(initialBookLang);
-  const [bookStartIndex, setBookStartIndex] = useState(0);
-  const [bookHasMore, setBookHasMore] = useState(true);
+  const [bookStartIndex, setBookStartIndex] = useState(initialBookStartIndex);
+  const [bookHasMore, setBookHasMore] = useState(bookCacheData?.hasMore ?? true);
   const [bookLoadingMore, setBookLoadingMore] = useState(false);
-  const [bookDataLoaded, setBookDataLoaded] = useState(false);
+  const [bookDataLoaded, setBookDataLoaded] = useState(hasCache && bookCacheData !== null);
   
   // Arama için ayrı state'ler (infinite scroll)
   const [searchStartIndex, setSearchStartIndex] = useState(0);
@@ -730,7 +1112,7 @@ export default function ExplorePage() {
     }
     return interleaved;
   }, [bookLang, turkishPublishers, turkishAuthorQueries, internationalPublishers, universalGenreQueries]);
-  const [allQueryIndex, setAllQueryIndex] = useState(0);
+  const [allQueryIndex, setAllQueryIndex] = useState(initialQueryIndex);
   
   // Kitap kategori filtreleri - JSON'dan oku
   const bookCategories = Object.entries(bookQueriesConfig.categories).map(([value, data]) => ({
@@ -752,71 +1134,118 @@ export default function ExplorePage() {
     minPuan: initialMinPuan,
     genres: [] as number[]
   });
+  
+  // Filter modal state
+  const [filterModalOpen, setFilterModalOpen] = useState(false);
 
-  // Session storage'dan cache'lenmiş sonuçları oku
-  const getCachedResults = () => {
-    try {
-      const cached = sessionStorage.getItem('explorePageCache');
-      if (cached) {
-        const data = JSON.parse(cached);
-        // Cache key kontrolü - aynı filtrelerle mi?
-        const currentKey = `${activeTab}-${bookLang}-${bookCategory}-${initialMinYear}-${initialMaxYear}-${initialMinPuan}`;
-        if (data.key === currentKey) {
-          return data;
-        }
-      }
-    } catch (e) {
-      console.error('Cache okuma hatası:', e);
-    }
-    return null;
-  };
-
-  const cachedData = getCachedResults();
+  // Keşfet sayfası ek verileri (gerçek API'lerden)
+  const [populerListeler, setPopulerListeler] = useState<PopulerListe[]>([]);
+  const [onerilenKullanicilar, setOnerilenKullanicilar] = useState<OnerilenKullanici[]>([]);
+  
+  // Takip edilen kullanıcı ID'leri
+  const [takipEdilenIds, setTakipEdilenIds] = useState<Set<string>>(new Set());
+  const [takipLoading, setTakipLoading] = useState<string | null>(null);
 
   // Data states - cache'den veya boş başlat
-  const [tmdbResults, setTmdbResults] = useState<TmdbFilm[]>(cachedData?.tmdbResults || []);
-  const [bookResults, setBookResults] = useState<GoogleBook[]>(cachedData?.bookResults || []);
+  const [tmdbResults, setTmdbResults] = useState<TmdbFilm[]>(tmdbCacheData?.results || []);
+  const [bookResults, setBookResults] = useState<GoogleBook[]>(bookCacheData?.results || []);
   
-  // Cache'den veri geldiyse başlangıç değerlerini ayarla
-  const hasCache = cachedData !== null && (cachedData.bookResults?.length > 0 || cachedData.tmdbResults?.length > 0);
+  // Scroll restore flag - sadece bir kez yapılsın
+  const scrollRestoredRef = useRef(false);
   
-  // Cache'den gelen scroll pozisyonunu kullan
+  // Cache varsa seenIds'i restore et
   useEffect(() => {
-    if (cachedData?.scrollY) {
-      setTimeout(() => {
-        window.scrollTo(0, cachedData.scrollY);
-      }, 100);
+    if (bookCacheData?.seenIds) {
+      bookCacheData.seenIds.forEach(id => seenBookIds.current.add(id));
     }
   }, []); // Sadece mount'ta çalış
-
-  // Sonuçları cache'le (sayfa terk edilirken)
+  
+  // Cache'den gelen scroll pozisyonunu kullan - veriler yüklendikten sonra
   useEffect(() => {
-    const handleBeforeUnload = () => {
-      const cacheKey = `${activeTab}-${bookLang}-${bookCategory}-${appliedFilters.minYear}-${appliedFilters.maxYear}-${appliedFilters.minPuan}`;
-      const cacheData = {
-        key: cacheKey,
-        tmdbResults,
-        bookResults,
-        bookStartIndex,
-        scrollY: window.scrollY,
-        timestamp: Date.now()
-      };
-      sessionStorage.setItem('explorePageCache', JSON.stringify(cacheData));
-    };
+    // Zaten restore edildiyse tekrar yapma
+    if (scrollRestoredRef.current) return;
     
-    // Sayfa terk edilirken veya navigate edilirken cache'le
-    window.addEventListener('beforeunload', handleBeforeUnload);
+    // Cache'den veri geldiyse ve sonuçlar varsa scroll'u restore et
+    const shouldRestoreScroll = hasCache && (
+      (activeTab === 'tmdb' && tmdbResults.length > 0) ||
+      (activeTab === 'kitaplar' && bookResults.length > 0)
+    );
     
+    if (shouldRestoreScroll) {
+      const savedScroll = getScrollCache(activeTab);
+      if (savedScroll && savedScroll > 0) {
+        scrollRestoredRef.current = true; // Flag'i işaretle
+        // DOM'un tam oluşması için biraz bekle, animasyonsuz scroll
+        const timer = setTimeout(() => {
+          window.scrollTo(0, savedScroll);
+          console.log(`📜 Scroll restore: ${savedScroll}px`);
+        }, 50);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [hasCache, activeTab, tmdbResults.length, bookResults.length]); // Sonuçlar değişince kontrol et
+
+  // Component unmount olurken cache'le
+  useEffect(() => {
     return () => {
-      // Component unmount olurken cache'le (navigate için)
-      handleBeforeUnload();
-      window.removeEventListener('beforeunload', handleBeforeUnload);
+      // Scroll pozisyonunu kaydet
+      setScrollCache(window.scrollY, activeTab);
+      
+      // TMDB sonuçlarını cache'le
+      if (tmdbResults.length > 0) {
+        setTmdbCache(tmdbResults, tmdbPage, tmdbHasMore, tmdbFilter, tmdbSort);
+      }
+      
+      // Kitap sonuçlarını cache'le
+      if (bookResults.length > 0) {
+        setBookCache(
+          bookResults, 
+          bookStartIndex, 
+          allQueryIndex, 
+          bookHasMore, 
+          bookCategory, 
+          bookLang,
+          Array.from(seenBookIds.current)
+        );
+      }
     };
-  }, [activeTab, bookLang, bookCategory, appliedFilters, tmdbResults, bookResults, bookStartIndex]);
+  }, [activeTab, tmdbResults, tmdbPage, tmdbHasMore, tmdbFilter, tmdbSort, bookResults, bookStartIndex, allQueryIndex, bookHasMore, bookCategory, bookLang]);
+
+  // Keşfet verilerini cache'den yükle
+  useEffect(() => {
+    const cachedExploreData = getExploreDataCache();
+    if (cachedExploreData) {
+      setPopulerListeler(cachedExploreData.populerListeler);
+      setOnerilenKullanicilar(cachedExploreData.onerilenKullanicilar);
+    }
+  }, []); // Sadece mount'ta çalış
 
   // Loading states
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState<string | null>(null);
+
+  const resetSearchState = useCallback(() => {
+    setSearchStartIndex(0);
+    setSearchHasMore(true);
+    searchSeenIds.current.clear();
+
+    seenBookIds.current.clear();
+    setBookResults(prev => (prev.length ? [] : prev));
+    setBookStartIndex(0);
+    setAllQueryIndex(0);
+    setBookHasMore(true);
+    setBookDataLoaded(false);
+    setBookLoadingMore(false);
+    lastRequestedKey.current = '';
+
+    setTmdbResults(prev => (prev.length ? [] : prev));
+    setTmdbPage(1);
+    setTmdbHasMore(true);
+    setTmdbLoadingMore(false);
+    tmdbDataLoadedRef.current = false;
+
+    setLoading(false);
+  }, []);
 
   // Filter helper - filtre uygulama (hem TMDB hem Kitaplar için)
   const applyFilters = () => {
@@ -837,6 +1266,7 @@ export default function ExplorePage() {
     setTmdbPage(1);
     setTmdbResults([]);
     setTmdbHasMore(true);
+    clearTmdbCache(); // Cache temizle
     // Kitaplar için
     setBookStartIndex(0);
     setAllQueryIndex(0);
@@ -845,6 +1275,7 @@ export default function ExplorePage() {
     lastRequestedKey.current = ''; // Cache key'i sıfırla
     setBookHasMore(true);
     setBookDataLoaded(false);
+    clearBookCache(); // Cache temizle
   };
 
   const resetFilters = () => {
@@ -857,6 +1288,7 @@ export default function ExplorePage() {
     setTmdbPage(1);
     setTmdbResults([]);
     setTmdbHasMore(true);
+    clearTmdbCache(); // Cache temizle
     // Kitaplar için
     setBookStartIndex(0);
     setAllQueryIndex(0);
@@ -864,6 +1296,7 @@ export default function ExplorePage() {
     seenBookIds.current.clear();
     setBookHasMore(true);
     setBookDataLoaded(false);
+    clearBookCache(); // Cache temizle
   };
 
   // TMDB filter/sort değiştiğinde state'leri sıfırla
@@ -873,6 +1306,7 @@ export default function ExplorePage() {
     setTmdbPage(1);
     setTmdbResults([]);
     setTmdbHasMore(true);
+    clearTmdbCache(); // Cache temizle
   };
 
   const handleTmdbSortChange = (sort: 'popular' | 'top_rated' | 'trending' | 'now_playing') => {
@@ -881,6 +1315,7 @@ export default function ExplorePage() {
     setTmdbPage(1);
     setTmdbResults([]);
     setTmdbHasMore(true);
+    clearTmdbCache(); // Cache temizle
   };
 
   // Kitap kategori değiştiğinde state'leri sıfırla
@@ -894,6 +1329,7 @@ export default function ExplorePage() {
     lastRequestedKey.current = ''; // Request tracker'ı sıfırla
     setBookHasMore(true);
     setBookDataLoaded(false);
+    clearBookCache(); // Cache temizle
   };
   
   // Kitap dil değiştiğinde state'leri sıfırla
@@ -907,6 +1343,7 @@ export default function ExplorePage() {
     lastRequestedKey.current = ''; // Request tracker'ı sıfırla
     setBookHasMore(true);
     setBookDataLoaded(false);
+    clearBookCache(); // Cache temizle
   };
 
   // Puan filtresi değiştiğinde - "Tümü" seçilirse hemen uygula
@@ -924,6 +1361,7 @@ export default function ExplorePage() {
       lastRequestedKey.current = '';
       setBookHasMore(true);
       setBookDataLoaded(false);
+      clearBookCache(); // Cache temizle
     }
   };
 
@@ -941,26 +1379,7 @@ export default function ExplorePage() {
   // Arama fonksiyonu - ilk sayfa için
   const handleSearch = useCallback(async () => {
     if (!searchQuery.trim()) {
-      // Arama temizlendiğinde normal keşfet moduna dön
-      setSearchStartIndex(0);
-      setSearchHasMore(true);
-      searchSeenIds.current.clear();
-      
-      // Kitaplar sekmesindeyse keşfet verilerini yeniden yükle
-      if (activeTab === 'kitaplar') {
-        setBookResults([]);
-        seenBookIds.current.clear();
-        setBookStartIndex(0);
-        setAllQueryIndex(0);
-        setBookDataLoaded(false); // Bu sayede loadBooksData tetiklenecek
-        lastRequestedKey.current = '';
-      }
-      // TMDB sekmesindeyse tmdb verilerini yeniden yükle
-      if (activeTab === 'tmdb') {
-        setTmdbResults([]);
-        setTmdbPage(1);
-        tmdbDataLoadedRef.current = false;
-      }
+      resetSearchState();
       return;
     }
 
@@ -1040,11 +1459,16 @@ export default function ExplorePage() {
         }
         
         // Puan filtresi uygula (kitaplar için ortalamaPuan/averageRating)
+        // Saga puanı varsa onu kullan, yoksa Google Books puanını kullan (5 üzerinden 10'a çevir)
         if (appliedFilters.minPuan) {
           results = results.filter((book: GoogleBook) => {
-            const rating = book.ortalamaPuan || book.averageRating || 0;
-            // Google Books 5 üzerinden, biz 10 üzerinden gösteriyoruz
-            const rating10 = rating * 2;
+            // Saga puanı zaten 10 üzerinden
+            if (book.ortalamaPuan && book.ortalamaPuan > 0) {
+              return book.ortalamaPuan >= appliedFilters.minPuan!;
+            }
+            // Google Books puanı 5 üzerinden, 10'a çevir
+            const googleRating = book.averageRating || 0;
+            const rating10 = googleRating * 2;
             return rating10 >= appliedFilters.minPuan!;
           });
         }
@@ -1066,7 +1490,14 @@ export default function ExplorePage() {
     } finally {
       setLoading(false);
     }
-  }, [searchQuery, activeTab, tmdbFilter, appliedFilters.minYear, appliedFilters.maxYear]);
+  }, [searchQuery, activeTab, tmdbFilter, appliedFilters.minYear, appliedFilters.maxYear, appliedFilters.minPuan, bookLang, resetSearchState]);
+
+  const handleSearchClear = useCallback(() => {
+    if (!searchQuery.trim()) return;
+    previousSearchValue.current = '';
+    setSearchQuery('');
+    resetSearchState();
+  }, [searchQuery, resetSearchState]);
 
   // Arama için daha fazla sonuç yükle (infinite scroll)
   const loadMoreSearchResults = useCallback(async () => {
@@ -1126,10 +1557,16 @@ export default function ExplorePage() {
       }
       
       // Puan filtresi uygula
+      // Saga puanı varsa onu kullan, yoksa Google Books puanını kullan (5 üzerinden 10'a çevir)
       if (appliedFilters.minPuan) {
         results = results.filter((book: GoogleBook) => {
-          const rating = book.ortalamaPuan || book.averageRating || 0;
-          const rating10 = rating * 2;
+          // Saga puanı zaten 10 üzerinden
+          if (book.ortalamaPuan && book.ortalamaPuan > 0) {
+            return book.ortalamaPuan >= appliedFilters.minPuan!;
+          }
+          // Google Books puanı 5 üzerinden, 10'a çevir
+          const googleRating = book.averageRating || 0;
+          const rating10 = googleRating * 2;
           return rating10 >= appliedFilters.minPuan!;
         });
       }
@@ -1169,8 +1606,6 @@ export default function ExplorePage() {
   }, [searchQuery, searchStartIndex, searchHasMore, bookLoadingMore, bookLang, appliedFilters.minYear, appliedFilters.maxYear, appliedFilters.minPuan]);
 
   // TMDB verileri yükle (tab, filtre, sort veya sayfa değişince)
-  const tmdbDataLoadedRef = useRef(false);
-  
   // Filter/sort değişince reset
   useEffect(() => {
     tmdbDataLoadedRef.current = false;
@@ -1263,7 +1698,13 @@ export default function ExplorePage() {
             const year = item.yayinTarihi ? parseInt(item.yayinTarihi.split('-')[0]) : null;
             if (filters.minYear && (!year || year < filters.minYear)) return false;
             if (filters.maxYear && (!year || year > filters.maxYear)) return false;
-            if (filters.minPuan && (!item.puan || item.puan < filters.minPuan)) return false;
+            // Puan filtresi: Saga puanı varsa onu kullan, yoksa TMDB puanını kullan
+            if (filters.minPuan) {
+              const effectiveRating = (item.sagaOrtalamaPuan && item.sagaOrtalamaPuan > 0) 
+                ? item.sagaOrtalamaPuan 
+                : (item.puan || 0);
+              if (effectiveRating < filters.minPuan) return false;
+            }
             if (filters.genres.length > 0) {
               const itemGenres = item.turIds || [];
               // İçeriğin türlerinden herhangi biri genişletilmiş tür listesinde var mı?
@@ -1339,8 +1780,34 @@ export default function ExplorePage() {
     };
   }, [activeTab]); // Sadece tab değişince re-attach
 
+  // IntersectionObserver ref'i - sonsuz kaydırma için
+  const loadMoreTriggerRef = useRef<HTMLDivElement>(null);
+  
+  // IntersectionObserver ile TMDB sonsuz kaydırma
+  useEffect(() => {
+    if (activeTab !== 'tmdb') return;
+    if (!loadMoreTriggerRef.current) return;
+    
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries;
+        if (entry.isIntersecting && !loading && !tmdbLoadingMore && tmdbHasMore && !tmdbLoadingRef.current) {
+          console.log('🎬 TMDB: IntersectionObserver tetiklendi, sayfa yükleniyor...');
+          setTmdbPage(prev => prev + 1);
+        }
+      },
+      { 
+        rootMargin: '600px', // 600px önceden tetikle
+        threshold: 0 
+      }
+    );
+    
+    observer.observe(loadMoreTriggerRef.current);
+    
+    return () => observer.disconnect();
+  }, [activeTab, loading, tmdbLoadingMore, tmdbHasMore]);
+
   // Scroll ile Kitaplar için sonsuz kaydırma (throttled)
-  const bookScrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bookScrollStateRef = useRef({ 
     loading: false, 
     bookLoadingMore: false, 
@@ -1355,54 +1822,48 @@ export default function ExplorePage() {
   const loadMoreSearchResultsRef = useRef(loadMoreSearchResults);
   loadMoreSearchResultsRef.current = loadMoreSearchResults;
   
+  // IntersectionObserver ile Kitaplar sonsuz kaydırma
   useEffect(() => {
     if (activeTab !== 'kitaplar') return;
-
-    const handleScroll = () => {
-      const { 
-        loading: isLoading, 
-        bookLoadingMore: isLoadingMore, 
-        bookHasMore: hasMore, 
-        bookDataLoaded: dataLoaded,
-        searchQuery: query,
-        searchHasMore: searchMore
-      } = bookScrollStateRef.current;
-      
-      // Yükleme yapılıyorsa atla
-      if (isLoading || isLoadingMore) return;
-      if (bookScrollTimeoutRef.current) return; // Throttle: bekleyen istek varsa atla
-      
-      const scrollPosition = window.innerHeight + window.scrollY;
-      const threshold = document.body.offsetHeight - 600; // Daha erken tetikle
-      
-      if (scrollPosition >= threshold) {
-        bookScrollTimeoutRef.current = setTimeout(() => {
-          // Arama varsa loadMoreSearchResults kullan
-          if (query.trim().length >= 2) {
-            if (searchMore) {
-              loadMoreSearchResultsRef.current();
-            }
-          } else {
-            // Keşfet modu - daha fazla veri yoksa veya ilk yükleme bitmemişse atla
-            if (!hasMore || !dataLoaded) {
-              bookScrollTimeoutRef.current = null;
-              return;
-            }
-            setBookStartIndex(prev => prev + 40);
+    if (!loadMoreTriggerRef.current) return;
+    
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries;
+        const { 
+          loading: isLoading, 
+          bookLoadingMore: isLoadingMore, 
+          bookHasMore: hasMore, 
+          bookDataLoaded: dataLoaded,
+          searchQuery: query,
+          searchHasMore: searchMore
+        } = bookScrollStateRef.current;
+        
+        if (!entry.isIntersecting || isLoading || isLoadingMore) return;
+        
+        // Arama varsa loadMoreSearchResults kullan
+        if (query.trim().length >= 2) {
+          if (searchMore) {
+            console.log('📚 Kitap Arama: IntersectionObserver tetiklendi');
+            loadMoreSearchResultsRef.current();
           }
-          bookScrollTimeoutRef.current = null;
-        }, 300);
+        } else {
+          // Keşfet modu
+          if (!hasMore || !dataLoaded) return;
+          console.log('📚 Kitap Keşfet: IntersectionObserver tetiklendi');
+          setBookStartIndex(prev => prev + 40);
+        }
+      },
+      { 
+        rootMargin: '800px', // 800px önceden tetikle (kitaplar daha yavaş yükleniyor)
+        threshold: 0 
       }
-    };
-
-    window.addEventListener('scroll', handleScroll);
-    return () => {
-      window.removeEventListener('scroll', handleScroll);
-      if (bookScrollTimeoutRef.current) {
-        clearTimeout(bookScrollTimeoutRef.current);
-      }
-    };
-  }, [activeTab]); // Sadece tab değişince re-attach - state'ler ref ile takip ediliyor
+    );
+    
+    observer.observe(loadMoreTriggerRef.current);
+    
+    return () => observer.disconnect();
+  }, [activeTab]);
 
   // Kitaplar için varsayılan veri yükle (tab değişince veya kategori/sıralama değişince)
   useEffect(() => {
@@ -1660,12 +2121,16 @@ export default function ExplorePage() {
           uniqueNewResults = [...inRange, ...noDate];
         }
         
-        // Puan filtresi uygula (kitaplar için - 5 üzerinden 10'a çevir)
+        // Puan filtresi uygula (kitaplar için - Saga puanı varsa onu, yoksa Google puanını kullan)
         if (appliedFilters.minPuan) {
           uniqueNewResults = uniqueNewResults.filter((book: GoogleBook) => {
-            const rating = book.ortalamaPuan || book.averageRating || 0;
-            // Google Books 5 üzerinden, UI 10 üzerinden gösteriyor
-            const rating10 = rating * 2;
+            // Saga puanı zaten 10 üzerinden
+            if (book.ortalamaPuan && book.ortalamaPuan > 0) {
+              return book.ortalamaPuan >= appliedFilters.minPuan!;
+            }
+            // Google Books puanı 5 üzerinden, 10'a çevir
+            const googleRating = book.averageRating || 0;
+            const rating10 = googleRating * 2;
             return rating10 >= appliedFilters.minPuan!;
           });
         }
@@ -1777,13 +2242,23 @@ export default function ExplorePage() {
 
   // Arama tetikle
   useEffect(() => {
-    const timer = setTimeout(() => {
-      if (searchQuery.trim().length >= 2) {
-        handleSearch();
+    const trimmed = searchQuery.trim();
+    const prevTrimmed = previousSearchValue.current.trim();
+
+    if (trimmed.length < 2) {
+      if (prevTrimmed.length >= 2) {
+        resetSearchState();
       }
+      previousSearchValue.current = searchQuery;
+      return;
+    }
+
+    previousSearchValue.current = searchQuery;
+    const timer = setTimeout(() => {
+      handleSearch();
     }, 500);
     return () => clearTimeout(timer);
-  }, [searchQuery, activeTab, tmdbFilter, handleSearch]);
+  }, [searchQuery, handleSearch, resetSearchState]);
 
   // URL params güncelle - tüm filtreler dahil
   useEffect(() => {
@@ -1819,8 +2294,8 @@ export default function ExplorePage() {
       } else {
         icerik = await externalApi.importBook(id);
       }
-      // İçerik detayına yönlendir
-      const tur = type === 'tv' ? 'film' : type; // Diziler de film olarak kaydediliyor
+      // İçerik detayına yönlendir - normalizeContentType ile tur'u düzelt
+      const tur = normalizeContentType(icerik.tur || (type === 'tv' ? 'dizi' : type));
       navigate(`/icerik/${tur}/${icerik.id}`);
     } catch (err) {
       console.error('Import hatası:', err);
@@ -1830,171 +2305,521 @@ export default function ExplorePage() {
   };
 
   return (
-    <div className="flex gap-6">
-      {/* Main Content Area */}
-      <div className="flex-1 min-w-0">
-        {/* Header */}
-        <div className="mb-6">
-          <h1 className="text-3xl font-bold text-white mb-2">Keşfet</h1>
-          <p className="text-[#8E8E93]">Film ve kitapları keşfedin, kütüphanenize ekleyin.</p>
-        </div>
+    <>
+    <div className="explore-page">
+      {/* Main Content */}
+      <main className="explore-content">
+        {/* Search Section */}
+        <section className="search-section">
+          <div className="search-container">
+            <div className="search-input-wrapper">
+              <span className="search-icon">
+                <Search size={22} />
+              </span>
+              <input
+                type="text"
+                className="search-input"
+                placeholder="Film, dizi, kitap ara..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+              <button 
+                className={`search-clear ${searchQuery ? 'visible' : ''}`}
+                onClick={handleSearchClear}
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <button 
+              className={`filter-toggle-btn ${filterModalOpen ? 'active' : ''}`}
+              onClick={() => setFilterModalOpen(!filterModalOpen)}
+              title="Filtreler"
+            >
+              <SlidersHorizontal size={20} />
+              <span>Filtreler</span>
+            </button>
+          </div>
+        </section>
 
-        {/* Search Bar */}
-        <div className="relative mb-6">
-          <Search size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-[#8E8E93]" aria-hidden="true" />
-        <input
-          id="search-input"
-          name="search"
-          type="text"
-          placeholder="Film veya kitap ara..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          aria-label="Film veya kitap ara"
-          className="w-full bg-[rgba(118,118,128,0.24)] border-none pl-12 pr-12 py-4 rounded-2xl text-white text-base focus:outline-none focus:ring-2 focus:ring-[#6C5CE7]/50 transition-all"
-        />
-        {searchQuery && (
-          <button
-            onClick={() => setSearchQuery('')}
-            className="absolute right-4 top-1/2 -translate-y-1/2 text-[#8E8E93] hover:text-white transition-colors"
-            aria-label="Aramayı temizle"
-          >
-            <X size={20} />
-          </button>
-        )}
-      </div>
+        {/* Category Section */}
+        <section className="category-section">
+          <div className="section-header">
+            <h2 className="section-title">Kategoriler</h2>
+          </div>
+          <div className="category-tabs">
+            <button
+              className={`category-tab ${activeTab === 'tmdb' && tmdbFilter === 'all' ? 'active' : ''}`}
+              onClick={() => { setActiveTab('tmdb'); handleTmdbFilterChange('all'); }}
+            >
+              <Layers size={18} />
+              Tümü
+            </button>
+            <button
+              className={`category-tab ${activeTab === 'tmdb' && tmdbFilter === 'movie' ? 'active' : ''}`}
+              onClick={() => { setActiveTab('tmdb'); handleTmdbFilterChange('movie'); }}
+            >
+              <Film size={18} />
+              Filmler
+            </button>
+            <button
+              className={`category-tab ${activeTab === 'tmdb' && tmdbFilter === 'tv' ? 'active' : ''}`}
+              onClick={() => { setActiveTab('tmdb'); handleTmdbFilterChange('tv'); }}
+            >
+              <Tv size={18} />
+              Diziler
+            </button>
+            <button
+              className={`category-tab ${activeTab === 'kitaplar' ? 'active' : ''}`}
+              onClick={() => setActiveTab('kitaplar')}
+            >
+              <BookOpen size={18} />
+              Kitaplar
+            </button>
+          </div>
+        </section>
 
-      {/* Tabs */}
-      <div className="flex gap-2 mb-6 overflow-x-auto hide-scrollbar">
-        {[
-          { id: 'tmdb', label: 'Film & Dizi', icon: <Film size={16} /> },
-          { id: 'kitaplar', label: 'Kitaplar', icon: <BookOpen size={16} /> },
-        ].map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id as any)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
-              activeTab === tab.id
-                ? 'bg-[#6C5CE7] text-white'
-                : 'bg-white/5 text-[#8E8E93] hover:bg-white/10 hover:text-white'
-            }`}
-          >
-            {tab.icon}
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Loading */}
-      {loading && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-          {[...Array(12)].map((_, i) => (
-            <ContentSkeleton key={i} />
-          ))}
-        </div>
-      )}
-
-      {/* TMDB Results - arama veya sıralama sonuçları */}
-      {!loading && activeTab === 'tmdb' && (
-        <>
-          {tmdbResults.length > 0 ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-              {tmdbResults.map((film) => {
+        {/* ========================================
+           FEATURED SECTION - Öne Çıkanlar (Arama yokken)
+        ======================================== */}
+        {!searchQuery && !loading && activeTab === 'tmdb' && tmdbResults.length > 0 && (
+          <section className="featured-section">
+            <div className="section-header">
+              <h2 className="section-title">Öne Çıkanlar</h2>
+            </div>
+            <div className="featured-slider">
+              {tmdbResults.slice(0, 4).map((film) => {
                 const mediaType = film.mediaType === 'tv' ? 'tv' : 'film';
-                return (
-                  <ExternalCard
-                    key={`${mediaType}-${film.id}`}
-                    item={film}
-                    type={mediaType}
-                    onImport={() => handleImport(film.id, mediaType)}
-                    importing={importing === film.id}
-                  />
-                );
-              })}
-            </div>
-          ) : searchQuery.trim().length >= 2 ? (
-            <NebulaCard className="text-center py-12">
-              <Film size={48} className="mx-auto mb-4 text-[#8E8E93]" />
-              <p className="text-[#8E8E93]">
-                "{searchQuery}" için TMDB'de sonuç bulunamadı.
-              </p>
-            </NebulaCard>
-          ) : null}
-          {tmdbLoadingMore && (
-            <div className="flex justify-center py-6">
-              <Loader2 size={24} className="animate-spin text-[#6C5CE7]" />
-            </div>
-          )}
-        </>
-      )}
-
-      {/* Kitap sonuçları */}
-      {!loading && activeTab === 'kitaplar' && (
-        <>
-          {bookResults.length > 0 ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-              {bookResults.map((book) => {
-                // Veritabanından gelen kitap mı kontrol et
-                const isDbBook = book.id.startsWith('db-');
-                const dbId = isDbBook ? parseInt(book.id.replace('db-', '')) : undefined;
+                // Backdrop tercih et, yoksa poster kullan
+                const backdropUrl = film.arkaplanUrl || 
+                                   (film.posterPath ? `https://image.tmdb.org/t/p/w780${film.posterPath}` : undefined) ||
+                                   film.posterUrl;
+                const title = film.baslik || film.title;
+                const rating = film.puan || film.voteAverage;
+                const year = (film.yayinTarihi || film.releaseDate)?.split('-')[0];
+                const currentYear = new Date().getFullYear().toString();
+                const badge = mediaType === 'tv' ? 'Dizi' : (year === currentYear || year === (parseInt(currentYear)-1).toString() ? 'Yeni' : 'Film');
                 
                 return (
-                  <ExternalCard
-                    key={book.id}
-                    item={book}
-                    type="kitap"
-                    onImport={() => handleImport(book.id, 'kitap')}
-                    importing={importing === book.id}
-                    dbId={dbId}
-                    onNavigate={(id) => navigate(`/icerik/kitap/${id}`)}
-                  />
+                  <div 
+                    key={`featured-${mediaType}-${film.id}`}
+                    className="featured-card"
+                    onClick={() => handleImport(film.id, mediaType)}
+                  >
+                    {backdropUrl && <img src={backdropUrl} alt={title} />}
+                    <div className="featured-overlay">
+                      <span className="featured-badge">{badge}</span>
+                      <h3 className="featured-title">{title}</h3>
+                      <div className="featured-meta">
+                        {rating && rating > 0 && (
+                          <span className="featured-rating tmdb">
+                            <span className="rating-label">TMDB</span>
+                            <Star size={14} />
+                            {rating.toFixed(1)}
+                          </span>
+                        )}
+                        <span className="featured-rating saga">
+                          <span className="rating-label">SAGA</span>
+                          <Star size={14} />
+                          {film.sagaOrtalamaPuan && film.sagaOrtalamaPuan > 0 ? film.sagaOrtalamaPuan.toFixed(1) : '—'}
+                        </span>
+                        {year && <span>{year}</span>}
+                      </div>
+                    </div>
+                    {importing === film.id && (
+                      <div className="content-import-overlay" style={{opacity: 1}}>
+                        <Loader2 size={24} className="animate-spin" />
+                      </div>
+                    )}
+                  </div>
                 );
               })}
             </div>
-          ) : searchQuery.trim().length >= 2 ? (
-            <NebulaCard className="text-center py-12">
-              <BookOpen size={48} className="mx-auto mb-4 text-[#8E8E93]" />
-              <p className="text-[#8E8E93]">
-                "{searchQuery}" için kitap bulunamadı.
-              </p>
-            </NebulaCard>
-          ) : null}
-          {bookLoadingMore && (
-            <div className="flex justify-center py-6">
-              <Loader2 size={24} className="animate-spin text-[#00b894]" />
-            </div>
-          )}
-        </>
-      )}
-      </div>
+          </section>
+        )}
 
-      {/* Right Sidebar - Filter Panel */}
-      <div className="hidden lg:block w-[300px] flex-shrink-0">
-        <div className="sticky top-6">
-          <FilterPanel
-            activeTab={activeTab}
-            tmdbFilter={tmdbFilter}
-            onTmdbFilterChange={handleTmdbFilterChange}
-            tmdbSort={tmdbSort}
-            onTmdbSortChange={handleTmdbSortChange}
-            bookCategory={bookCategory}
-            bookCategories={bookCategories}
-            onBookCategoryChange={handleBookCategoryChange}
-            bookLang={bookLang}
-            bookLanguages={bookLanguages}
-            onBookLangChange={handleBookLangChange}
-            minYear={minYear}
-            maxYear={maxYear}
-            minPuan={minPuan}
-            selectedGenres={selectedGenres}
-            onMinYearChange={setMinYear}
-            onMaxYearChange={setMaxYear}
-            onMinPuanChange={handleMinPuanChange}
-            onGenresChange={setSelectedGenres}
-            onApply={applyFilters}
-            onReset={resetFilters}
-          />
-        </div>
-      </div>
+        {/* ========================================
+           GENRE SECTION - Türlere Göz At (Arama yokken)
+        ======================================== */}
+        {!searchQuery && !loading && activeTab === 'tmdb' && (
+          <section className="genre-section">
+            <div className="section-header">
+              <h2 className="section-title">Türlere Göz At</h2>
+            </div>
+            <div className="genre-grid">
+              {[
+                { id: 28, name: 'Aksiyon', icon: Swords },
+                { id: 10749, name: 'Romantik', icon: Heart },
+                { id: 27, name: 'Korku', icon: Ghost },
+                { id: 35, name: 'Komedi', icon: Laugh },
+                { id: 878, name: 'Bilim Kurgu', icon: Rocket },
+                { id: 14, name: 'Fantastik', icon: Wand2 },
+              ].map((genre) => {
+                const IconComponent = genre.icon;
+                return (
+                  <div 
+                    key={genre.id} 
+                    className="genre-card" 
+                    onClick={() => { 
+                      setSelectedGenres([genre.id]); 
+                      applyFilters(); 
+                    }}
+                  >
+                    <div className="genre-content">
+                      <IconComponent className="genre-icon" size={24} />
+                      <span className="genre-name">{genre.name}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {/* ========================================
+           RECOMMENDATIONS - Sana Özel (Sadece giriş yapmış kullanıcılar için)
+        ======================================== */}
+        {!searchQuery && !loading && activeTab === 'tmdb' && tmdbResults.length > 4 && user && (
+          <section className="recommendations-section">
+            <div className="rec-header">
+              <div className="rec-icon">
+                <Sparkles size={22} />
+              </div>
+              <div className="rec-text">
+                <h3>Sana Özel</h3>
+                <p>İzleme geçmişine göre öneriler</p>
+              </div>
+            </div>
+            <ContentGrid className="content-grid--horizontal">
+              {tmdbResults
+                .filter((film) => {
+                  // Kullanıcının zaten izlediği/kütüphanesinde olan içerikleri filtrele
+                  if (film.sagaIcerikId && userWatchedIds.has(String(film.sagaIcerikId))) {
+                    return false;
+                  }
+                  return true;
+                })
+                .slice(4, 12)
+                .map((film) => {
+                const mediaType = film.mediaType === 'tv' ? 'tv' : 'film';
+                const matchPercent = calculateMatchPercentage(film, userPreferences, tmdbResults);
+                const cardData = tmdbToCardData(film);
+                cardData.matchPercentage = matchPercent;
+                
+                return (
+                  <ContentCard
+                    key={`rec-${mediaType}-${film.id}`}
+                    data={cardData}
+                    size="lg"
+                    showBadge={true}
+                    showRatings={true}
+                    showMatch={true}
+                    showImportOverlay={!film.sagaIcerikId}
+                    importing={importing === film.id}
+                    onImport={() => handleImport(film.id, mediaType)}
+                  />
+                );
+              })}
+            </ContentGrid>
+          </section>
+        )}
+
+        {/* ========================================
+           POPULAR LISTS - Popüler Listeler (Gerçek API'den)
+        ======================================== */}
+        {!searchQuery && !loading && activeTab === 'tmdb' && populerListeler.length > 0 && (
+          <section className="lists-section">
+            <div className="section-header">
+              <h2 className="section-title">Popüler Listeler</h2>
+              <button className="section-link" onClick={() => navigate('/listelerim')}>
+                Tümünü Gör
+                <ChevronRight size={16} />
+              </button>
+            </div>
+            <div className="lists-slider">
+              {populerListeler.map((liste) => (
+                <div 
+                  key={liste.id} 
+                  className="list-card" 
+                  onClick={() => navigate(`/liste/${liste.id}`)}
+                >
+                  <div className="list-covers">
+                    {liste.kapakGorselleri.slice(0, 3).map((url, i) => (
+                      <img key={i} src={url} alt="" />
+                    ))}
+                    {liste.kapakGorselleri.length === 0 && (
+                      <div className="list-cover-placeholder">
+                        <Film size={24} />
+                      </div>
+                    )}
+                  </div>
+                  <div className="list-info">
+                    <h4 className="list-title">
+                      {liste.ad}
+                      {liste.onaylandi && <BadgeCheck size={16} className="verified" />}
+                    </h4>
+                    <div className="list-meta">
+                      <span><Film size={14} /> {liste.icerikSayisi} içerik</span>
+                      {liste.begeniSayisi > 0 && <span><Heart size={14} /> {liste.begeniSayisi}</span>}
+                    </div>
+                    <div className="list-author">
+                      {liste.kullaniciAvatar ? (
+                        <img src={liste.kullaniciAvatar} alt="" className="list-author-avatar" />
+                      ) : (
+                        <span className="list-author-avatar">{liste.kullaniciAdi[0].toUpperCase()}</span>
+                      )}
+                      <span className="list-author-name">@{liste.kullaniciAdi}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* ========================================
+           PEOPLE SECTION - Keşfet: Kişiler (Gerçek API'den)
+        ======================================== */}
+        {!searchQuery && !loading && activeTab === 'tmdb' && onerilenKullanicilar.length > 0 && (
+          <section className="people-section">
+            <div className="section-header">
+              <h2 className="section-title">Keşfet: Kişiler</h2>
+            </div>
+            <div className="people-slider">
+              {onerilenKullanicilar.map((kisi) => (
+                <div 
+                  key={kisi.id} 
+                  className="person-card"
+                  onClick={() => navigate(`/profil/${kisi.kullaniciAdi}`)}
+                >
+                  <div className="person-avatar">
+                    {kisi.avatarUrl ? (
+                      <img src={kisi.avatarUrl} alt={kisi.kullaniciAdi} />
+                    ) : (
+                      <div className="person-avatar-placeholder">
+                        <User size={32} />
+                      </div>
+                    )}
+                  </div>
+                  <h5 className="person-name">{kisi.goruntulemeAdi || kisi.kullaniciAdi}</h5>
+                  <span className="person-username">@{kisi.kullaniciAdi}</span>
+                  <span className="person-reason">{kisi.oneriNedeni}</span>
+                  <button 
+                    className={`person-follow ${takipEdilenIds.has(kisi.id) ? 'following' : ''}`}
+                    disabled={takipLoading === kisi.id}
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      if (takipEdilenIds.has(kisi.id)) {
+                        // Takibi bırak
+                        setTakipLoading(kisi.id);
+                        try {
+                          await kullaniciApi.takipBirak(kisi.id);
+                          setTakipEdilenIds(prev => {
+                            const newSet = new Set(prev);
+                            newSet.delete(kisi.id);
+                            return newSet;
+                          });
+                        } catch (err) {
+                          console.error('Takipten çıkılamadı:', err);
+                        } finally {
+                          setTakipLoading(null);
+                        }
+                      } else {
+                        // Takip et
+                        setTakipLoading(kisi.id);
+                        try {
+                          await kullaniciApi.takipEt(kisi.id);
+                          setTakipEdilenIds(prev => new Set([...prev, kisi.id]));
+                        } catch (err) {
+                          console.error('Takip edilemedi:', err);
+                        } finally {
+                          setTakipLoading(null);
+                        }
+                      }
+                    }}
+                  >
+                    {takipLoading === kisi.id ? (
+                      <Loader2 size={14} className="animate-spin" />
+                    ) : takipEdilenIds.has(kisi.id) ? (
+                      'Takipten Çık'
+                    ) : (
+                      'Takip Et'
+                    )}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Loading State */}
+        {loading && (
+          <div className="content-grid">
+            {[...Array(12)].map((_, i) => (
+              <ContentSkeleton key={i} />
+            ))}
+          </div>
+        )}
+
+        {/* TMDB Results */}
+        {!loading && activeTab === 'tmdb' && (
+          <>
+            {/* Trending Section */}
+            {tmdbResults.length > 0 && (
+              <section className="trending-section">
+                <div className="section-header">
+                  <h2 className="section-title">
+                    {searchQuery ? `"${searchQuery}" Sonuçları` : 'Trend'}
+                  </h2>
+                </div>
+                <ContentGrid className="content-grid--horizontal">
+                  {tmdbResults.slice(0, 8).map((film, index) => {
+                    const mediaType = film.mediaType === 'tv' ? 'tv' : 'film';
+                    return (
+                      <ContentCard
+                        key={`${mediaType}-${film.id}`}
+                        data={tmdbToCardData(film)}
+                        size="lg"
+                        showBadge={true}
+                        showRatings={true}
+                        showImportOverlay={!film.sagaIcerikId}
+                        importing={importing === film.id}
+                        onImport={() => handleImport(film.id, mediaType)}
+                        rank={index + 1}
+                      />
+                    );
+                  })}
+                </ContentGrid>
+              </section>
+            )}
+
+            {/* More Results Grid */}
+            {tmdbResults.length > 8 && (
+              <section className="trending-section">
+                <div className="section-header">
+                  <h2 className="section-title">Daha Fazla</h2>
+                </div>
+                <ContentGrid>
+                  {tmdbResults.slice(8).map((film) => {
+                    const mediaType = film.mediaType === 'tv' ? 'tv' : 'film';
+                    return (
+                      <ContentCard
+                        key={`${mediaType}-${film.id}`}
+                        data={tmdbToCardData(film)}
+                        showImportOverlay={!film.sagaIcerikId}
+                        onImport={() => handleImport(film.id, mediaType)}
+                        importing={importing === film.id}
+                      />
+                    );
+                  })}
+                </ContentGrid>
+              </section>
+            )}
+
+            {/* Empty State */}
+            {tmdbResults.length === 0 && searchQuery.trim().length >= 2 && (
+              <div className="empty-state">
+                <div className="empty-state-icon">
+                  <Film size={80} />
+                </div>
+                <h3 className="empty-state-title">Sonuç Bulunamadı</h3>
+                <p className="empty-state-text">"{searchQuery}" için TMDB'de sonuç bulunamadı.</p>
+              </div>
+            )}
+
+            {tmdbLoadingMore && (
+              <div className="loading-spinner">
+                <Loader2 size={32} />
+              </div>
+            )}
+            
+            {/* IntersectionObserver trigger - TMDB */}
+            {activeTab === 'tmdb' && tmdbHasMore && !loading && (
+              <div ref={loadMoreTriggerRef} className="load-more-trigger" />
+            )}
+          </>
+        )}
+
+        {/* Kitap Results */}
+        {!loading && activeTab === 'kitaplar' && (
+          <>
+            {bookResults.length > 0 && (
+              <section className="trending-section">
+                <div className="section-header">
+                  <h2 className="section-title">
+                    {searchQuery ? `"${searchQuery}" Sonuçları` : 'Kitaplar'}
+                  </h2>
+                </div>
+                <ContentGrid>
+                  {bookResults.map((book) => {
+                    const isDbBook = book.id.startsWith('db-');
+                    const dbId = isDbBook ? parseInt(book.id.replace('db-', '')) : undefined;
+                    
+                    return (
+                      <ContentCard
+                        key={book.id}
+                        data={bookToCardData(book, dbId)}
+                        showImportOverlay={!dbId}
+                        onImport={() => handleImport(book.id, 'kitap')}
+                        importing={importing === book.id}
+                      />
+                    );
+                  })}
+                </ContentGrid>
+              </section>
+            )}
+
+            {/* Empty State */}
+            {bookResults.length === 0 && searchQuery.trim().length >= 2 && (
+              <div className="empty-state">
+                <div className="empty-state-icon">
+                  <BookOpen size={80} />
+                </div>
+                <h3 className="empty-state-title">Sonuç Bulunamadı</h3>
+                <p className="empty-state-text">"{searchQuery}" için kitap bulunamadı.</p>
+              </div>
+            )}
+
+            {bookLoadingMore && (
+              <div className="loading-spinner">
+                <Loader2 size={32} />
+              </div>
+            )}
+            
+            {/* IntersectionObserver trigger - Kitaplar */}
+            {activeTab === 'kitaplar' && bookHasMore && !loading && (
+              <div ref={loadMoreTriggerRef} className="load-more-trigger" />
+            )}
+          </>
+        )}
+      </main>
     </div>
+
+    {/* Filter Sidebar - explore-page dışında render edilmeli */}
+    <FilterPanel
+      isOpen={filterModalOpen}
+      onClose={() => setFilterModalOpen(false)}
+      activeTab={activeTab}
+      tmdbFilter={tmdbFilter}
+      onTmdbFilterChange={handleTmdbFilterChange}
+      tmdbSort={tmdbSort}
+      onTmdbSortChange={handleTmdbSortChange}
+      bookCategory={bookCategory}
+      bookCategories={bookCategories}
+      onBookCategoryChange={handleBookCategoryChange}
+      bookLang={bookLang}
+      bookLanguages={bookLanguages}
+      onBookLangChange={handleBookLangChange}
+      minYear={minYear}
+      maxYear={maxYear}
+      minPuan={minPuan}
+      selectedGenres={selectedGenres}
+      onMinYearChange={setMinYear}
+      onMaxYearChange={setMaxYear}
+      onMinPuanChange={handleMinPuanChange}
+      onGenresChange={setSelectedGenres}
+      onApply={applyFilters}
+      onReset={resetFilters}
+    />
+    </>
   );
 }
