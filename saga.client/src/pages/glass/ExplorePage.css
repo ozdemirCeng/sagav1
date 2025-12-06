@@ -552,6 +552,37 @@
   display: none;
 }
 
+/* Slider Loading Indicator */
+.slider-loading {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 80px;
+  color: var(--gold);
+}
+
+.slider-loading svg {
+  animation: spin 1s linear infinite;
+}
+
+/* Horizontal scroll sliders */
+.trend-slider,
+.recommendations-slider {
+  display: flex;
+  gap: 16px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  padding-bottom: 8px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.trend-slider::-webkit-scrollbar,
+.recommendations-slider::-webkit-scrollbar {
+  display: none;
+}
+
 .featured-card {
   flex-shrink: 0;
   width: 320px;
@@ -865,7 +896,7 @@
   display: none;
 }
 
-.list-card {
+.lists-section .list-card {
   flex-shrink: 0;
   width: 280px;
   background: var(--void-surface);
@@ -874,15 +905,16 @@
   overflow: hidden;
   cursor: pointer;
   transition: all 0.3s ease;
+  padding: 0;
 }
 
-.list-card:hover {
+.lists-section .list-card:hover {
   border-color: var(--gold);
   transform: translateY(-4px);
   box-shadow: var(--shadow-lg);
 }
 
-.list-covers {
+.lists-section .list-covers {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 2px;
@@ -891,17 +923,17 @@
   background: var(--void-elevated);
 }
 
-.list-covers img {
+.lists-section .list-covers img {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
-.list-info {
+.lists-section .list-info {
   padding: 16px;
 }
 
-.list-title {
+.lists-section .list-title {
   font-size: 1rem;
   font-weight: 600;
   color: var(--text-primary);
@@ -911,13 +943,13 @@
   gap: 8px;
 }
 
-.list-title .verified {
+.lists-section .list-title .verified {
   width: 16px;
   height: 16px;
   color: var(--gold);
 }
 
-.list-meta {
+.lists-section .list-meta {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -926,24 +958,24 @@
   margin-bottom: 12px;
 }
 
-.list-meta span {
+.lists-section .list-meta span {
   display: flex;
   align-items: center;
   gap: 4px;
 }
 
-.list-meta svg {
+.lists-section .list-meta svg {
   width: 14px;
   height: 14px;
 }
 
-.list-author {
+.lists-section .list-author {
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
-.list-author-avatar {
+.lists-section .list-author-avatar {
   width: 28px;
   height: 28px;
   border-radius: 50%;
@@ -956,9 +988,18 @@
   color: var(--void);
 }
 
-.list-author-name {
+.lists-section .list-author-name {
   font-size: 0.85rem;
   color: var(--text-secondary);
+}
+
+.lists-section .list-cover-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--void-elevated);
+  color: var(--text-muted);
+  grid-column: span 3;
 }
 
 /* ========================================
@@ -987,6 +1028,9 @@
   width: 120px;
   text-align: center;
   cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
 .person-avatar {
@@ -1026,6 +1070,10 @@
   opacity: 0.7;
   margin-top: 4px;
   text-align: center;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .person-name {
@@ -1033,6 +1081,10 @@
   font-weight: 500;
   color: var(--text-primary);
   margin-bottom: 4px;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .person-username {
@@ -1040,6 +1092,10 @@
   color: var(--text-muted);
   margin-bottom: 8px;
   display: block;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .person-follow {
@@ -1603,7 +1659,8 @@
 /* ========================================
    LOADING & SKELETON
 ======================================== */
-.skeleton {
+.skeleton,
+.skeleton-shimmer {
   background: linear-gradient(
     90deg,
     var(--void-surface) 25%,
@@ -1897,7 +1954,7 @@
     width: 120px;
   }
   
-  .list-card {
+  .lists-section .list-card {
     width: 260px;
   }
 }
@@ -2083,16 +2140,46 @@
     margin-bottom: 32px;
   }
   
-  .list-card {
-    width: 240px;
+  .lists-slider {
+    gap: 12px;
   }
   
-  .list-info {
-    padding: 12px;
+  .lists-section .list-card {
+    width: 200px;
+    min-width: 200px;
   }
   
-  .list-title {
-    font-size: 0.9rem;
+  .lists-section .list-covers {
+    aspect-ratio: 3/1.2;
+  }
+  
+  .lists-section .list-info {
+    padding: 10px;
+  }
+  
+  .lists-section .list-title {
+    font-size: 0.85rem;
+    margin-bottom: 6px;
+  }
+  
+  .lists-section .list-meta {
+    font-size: 0.7rem;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  
+  .lists-section .list-author {
+    gap: 6px;
+  }
+  
+  .lists-section .list-author-avatar {
+    width: 22px;
+    height: 22px;
+    font-size: 0.7rem;
+  }
+  
+  .lists-section .list-author-name {
+    font-size: 0.75rem;
   }
   
   /* Recommendations Mobile */
@@ -2259,6 +2346,38 @@
   .trending-genres .genre-tag {
     font-size: 0.5rem;
     padding: 1px 4px;
+  }
+  
+  /* Lists - Çok küçük mobil */
+  .lists-section .list-card {
+    width: 180px;
+    min-width: 180px;
+  }
+  
+  .lists-section .list-covers {
+    aspect-ratio: 3/1;
+  }
+  
+  .lists-section .list-info {
+    padding: 8px;
+  }
+  
+  .lists-section .list-title {
+    font-size: 0.8rem;
+  }
+  
+  .lists-section .list-meta {
+    font-size: 0.65rem;
+    margin-bottom: 6px;
+  }
+  
+  .lists-section .list-author-avatar {
+    width: 20px;
+    height: 20px;
+  }
+  
+  .lists-section .list-author-name {
+    font-size: 0.7rem;
   }
 }
 

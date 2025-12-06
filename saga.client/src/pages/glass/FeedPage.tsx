@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { aktiviteApi } from '../../services/api';
 import type { Aktivite, AktiviteYorum } from '../../services/api';
@@ -101,29 +101,32 @@ function getActionText(type: string, contentType?: string, durum?: string): stri
   const isBook = turKey === 'kitap';
   const isTV = turKey === 'dizi';
   
+  const contentName = isBook ? 'bu kitabı' : isTV ? 'bu diziyi' : 'bu filmi';
+  const contentNameHakkinda = isBook ? 'bu kitap' : isTV ? 'bu dizi' : 'bu film';
+  
   switch (typeKey) {
     case 'puanlama':
-      return isBook ? 'bir kitabı puanladı' : isTV ? 'bir diziyi puanladı' : 'bir filmi puanladı';
+      return `${contentName} puanladı`;
     case 'yorum':
-      return isBook ? 'bir kitap hakkında yorum yaptı' : isTV ? 'bir dizi hakkında yorum yaptı' : 'bir film hakkında yorum yaptı';
+      return `${contentNameHakkinda} hakkında yorum yaptı`;
     case 'durum_guncelleme':
       // Durum değerine göre aksiyon metni
       const durumKey = (durum || '').toLowerCase();
       if (durumKey === 'izlendi' || durumKey === 'tamamlandi') {
-        return isBook ? 'bir kitabı okudu' : isTV ? 'bir diziyi izledi' : 'bir filmi izledi';
+        return isBook ? `${contentName} okudu` : `${contentName} izledi`;
       } else if (durumKey === 'okundu') {
-        return 'bir kitabı okudu';
+        return `${contentName} okudu`;
       } else if (durumKey === 'devam_ediyor' || durumKey === 'izleniyor') {
-        return isTV ? 'bir dizi izlemeye başladı' : 'bir film izlemeye başladı';
+        return isTV ? 'bu diziyi izlemeye başladı' : 'bu filmi izlemeye başladı';
       } else if (durumKey === 'okunuyor') {
-        return 'bir kitap okumaya başladı';
+        return 'bu kitabı okumaya başladı';
       } else if (durumKey === 'izlenecek' || durumKey === 'okunacak') {
-        return isBook ? 'bir kitabı listesine ekledi' : isTV ? 'bir diziyi listesine ekledi' : 'bir filmi listesine ekledi';
+        return `${contentName} listesine ekledi`;
       }
       return isBook ? 'okuma durumunu güncelledi' : 'izleme durumunu güncelledi';
     case 'listeye_ekleme':
     case 'kutuphaneyeekleme':
-      return isBook ? 'bir kitabı kütüphanesine ekledi' : isTV ? 'bir diziyi kütüphanesine ekledi' : 'bir filmi kütüphanesine ekledi';
+      return `${contentName} kütüphanesine ekledi`;
     default:
       return 'bir aktivite gerçekleştirdi';
   }
@@ -275,12 +278,45 @@ function InlineComments({ aktiviteId, isOpen, isLoggedIn, currentUserName, onCom
   };
 
   const handleYorumBegen = async (yorumId: number, isReply = false, parentId?: number) => {
+    // Optimistic update için mevcut durumu bul
+    let currentBegendi = false;
+    if (isReply && parentId) {
+      const parent = yorumlar.find(y => y.id === parentId);
+      const reply = parent?.yanitlar?.find(r => r.id === yorumId);
+      currentBegendi = reply?.begendim || false;
+    } else {
+      const yorum = yorumlar.find(y => y.id === yorumId);
+      currentBegendi = yorum?.begendim || false;
+    }
+
+    // Hemen güncelle (optimistic)
+    if (isReply && parentId) {
+      setYorumlar(yorumlar.map(y => 
+        y.id === parentId 
+          ? { 
+              ...y, 
+              yanitlar: y.yanitlar?.map(r => 
+                r.id === yorumId 
+                  ? { ...r, begendim: !currentBegendi, begeniSayisi: (r.begeniSayisi || 0) + (currentBegendi ? -1 : 1) }
+                  : r
+              ) 
+            }
+          : y
+      ));
+    } else {
+      setYorumlar(yorumlar.map(y => 
+        y.id === yorumId 
+          ? { ...y, begendim: !currentBegendi, begeniSayisi: (y.begeniSayisi || 0) + (currentBegendi ? -1 : 1) }
+          : y
+      ));
+    }
+
     try {
       const result = await aktiviteApi.yorumBegen(yorumId);
       
+      // API sonucuyla senkronize et
       if (isReply && parentId) {
-        // Yanıt beğenisi
-        setYorumlar(yorumlar.map(y => 
+        setYorumlar(prev => prev.map(y => 
           y.id === parentId 
             ? { 
                 ...y, 
@@ -293,14 +329,34 @@ function InlineComments({ aktiviteId, isOpen, isLoggedIn, currentUserName, onCom
             : y
         ));
       } else {
-        // Ana yorum beğenisi
-        setYorumlar(yorumlar.map(y => 
+        setYorumlar(prev => prev.map(y => 
           y.id === yorumId 
             ? { ...y, begendim: result.begendim, begeniSayisi: result.begeniSayisi }
             : y
         ));
       }
     } catch (error) {
+      // Hata durumunda geri al
+      if (isReply && parentId) {
+        setYorumlar(prev => prev.map(y => 
+          y.id === parentId 
+            ? { 
+                ...y, 
+                yanitlar: y.yanitlar?.map(r => 
+                  r.id === yorumId 
+                    ? { ...r, begendim: currentBegendi, begeniSayisi: (r.begeniSayisi || 0) + (currentBegendi ? 1 : -1) }
+                    : r
+                ) 
+              }
+            : y
+        ));
+      } else {
+        setYorumlar(prev => prev.map(y => 
+          y.id === yorumId 
+            ? { ...y, begendim: currentBegendi, begeniSayisi: (y.begeniSayisi || 0) + (currentBegendi ? 1 : -1) }
+            : y
+        ));
+      }
       console.error('Beğeni hatası:', error);
     }
   };
@@ -517,7 +573,7 @@ function InlineComments({ aktiviteId, isOpen, isLoggedIn, currentUserName, onCom
         </div>
       ) : (
         <div className="comment-login-prompt">
-          <a href="/giris">Giriş yap</a> ve yorum yap
+          <Link to="/giris">Giriş yap</Link> ve yorum yap
         </div>
       )}
     </div>
@@ -575,12 +631,23 @@ export function FeedActivityCard({ aktivite, isLoggedIn, index, currentUserName,
 
   const handleLike = async () => {
     if (!isLoggedIn || isLiking) return;
+    
+    // Optimistic update - UI'ı hemen güncelle
+    const prevLiked = liked;
+    const prevCount = likeCount;
+    setLiked(!liked);
+    setLikeCount(liked ? likeCount - 1 : likeCount + 1);
+    
     setIsLiking(true);
     try {
       const result = await aktiviteApi.toggleBegeni(aktivite.id);
+      // API sonucuyla senkronize et
       setLiked(result.begendim);
       setLikeCount(result.begeniSayisi);
     } catch (error) {
+      // Hata durumunda geri al
+      setLiked(prevLiked);
+      setLikeCount(prevCount);
       console.error('Beğeni hatası:', error);
     } finally {
       setIsLiking(false);
@@ -875,15 +942,42 @@ export function FeedActivityCard({ aktivite, isLoggedIn, index, currentUserName,
               <span className="rating-value">{veri.puan.toFixed(1)}</span>
             </div>
           )}
-          {veri?.yorumOzet && (
-            <div className="content-user-comment">
-              <p>"{commentExcerpt}"</p>
-              {hasFullComment && (
-                <button className="read-more-link" onClick={(e) => { e.stopPropagation(); handleGoToComment(); }}>
-                  daha fazlasını gör
-                </button>
+          {/* Yorum içeriği - spoiler kontrolü ile */}
+          {commentExcerpt && (
+            <>
+              {isSpoiler && !spoilerRevealed ? (
+                <div 
+                  className="content-user-comment spoiler-hidden"
+                  onClick={(e) => { e.stopPropagation(); setSpoilerRevealed(true); }}
+                >
+                  <p>"{commentExcerpt}"</p>
+                  <div className="spoiler-overlay">
+                    <span className="material-symbols-rounded">visibility_off</span>
+                    Spoiler - görmek için tıkla
+                  </div>
+                </div>
+              ) : (
+                <div className="content-user-comment">
+                  <p>"{commentExcerpt}"</p>
+                  <div className="comment-actions">
+                    {isSpoiler && spoilerRevealed && (
+                      <button 
+                        className="spoiler-hide-btn"
+                        onClick={(e) => { e.stopPropagation(); setSpoilerRevealed(false); }}
+                      >
+                        <span className="material-symbols-rounded" style={{ fontSize: '14px' }}>visibility_off</span>
+                        Gizle
+                      </button>
+                    )}
+                    {hasFullComment && (
+                      <button className="read-more-link" onClick={(e) => { e.stopPropagation(); handleGoToComment(); }}>
+                        daha fazlasını gör
+                      </button>
+                    )}
+                  </div>
+                </div>
               )}
-            </div>
+            </>
           )}
         </div>
       )}
@@ -930,31 +1024,47 @@ export function FeedActivityCard({ aktivite, isLoggedIn, index, currentUserName,
 // ============================================
 function ActivitySkeleton() {
   return (
-    <div className="activity-card skeleton">
+    <article className="activity-card">
+      {/* Header Skeleton */}
       <div className="activity-header">
-        <div className="skeleton-avatar"></div>
-        <div className="skeleton-user-info">
-          <div className="skeleton-line short"></div>
-          <div className="skeleton-badge"></div>
+        {/* Avatar */}
+        <div className="activity-avatar skeleton-shimmer" style={{ width: 44, height: 44, borderRadius: '50%' }} />
+        
+        {/* Meta */}
+        <div className="activity-meta" style={{ flex: 1 }}>
+          <div className="activity-user" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <div className="skeleton-shimmer" style={{ width: 100, height: 16, borderRadius: 4 }} />
+            <div className="skeleton-shimmer" style={{ width: 140, height: 14, borderRadius: 4 }} />
+          </div>
+          <div className="skeleton-shimmer" style={{ width: 60, height: 12, borderRadius: 4, marginTop: 4 }} />
         </div>
-        <div className="skeleton-time"></div>
+        
+        {/* Type Badge */}
+        <div className="skeleton-shimmer" style={{ width: 60, height: 24, borderRadius: 6 }} />
       </div>
-      <div className="activity-content">
-        <div className="skeleton-poster"></div>
-        <div className="skeleton-content-info">
-          <div className="skeleton-line long"></div>
-          <div className="skeleton-line medium"></div>
-          <div className="skeleton-line short"></div>
+      
+      {/* Content Preview Skeleton */}
+      <div className="content-preview" style={{ display: 'flex', gap: 16, padding: '16px 0' }}>
+        {/* Poster */}
+        <div className="skeleton-shimmer" style={{ width: 100, height: 150, borderRadius: 12, flexShrink: 0 }} />
+        
+        {/* Content Info */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div className="skeleton-shimmer" style={{ width: '70%', height: 20, borderRadius: 4 }} />
+          <div className="skeleton-shimmer" style={{ width: '50%', height: 14, borderRadius: 4 }} />
+          <div className="skeleton-shimmer" style={{ width: 120, height: 24, borderRadius: 6, marginTop: 8 }} />
+          <div className="skeleton-shimmer" style={{ width: '90%', height: 14, borderRadius: 4, marginTop: 8 }} />
+          <div className="skeleton-shimmer" style={{ width: '75%', height: 14, borderRadius: 4 }} />
         </div>
       </div>
-      <div className="activity-footer">
-        <div className="skeleton-actions">
-          <div className="skeleton-button"></div>
-          <div className="skeleton-button"></div>
-        </div>
-        <div className="skeleton-menu"></div>
+      
+      {/* Footer Skeleton */}
+      <div className="activity-footer" style={{ display: 'flex', gap: 16, paddingTop: 12, borderTop: '1px solid var(--void-border)' }}>
+        <div className="skeleton-shimmer" style={{ width: 60, height: 32, borderRadius: 8 }} />
+        <div className="skeleton-shimmer" style={{ width: 60, height: 32, borderRadius: 8 }} />
+        <div className="skeleton-shimmer" style={{ width: 60, height: 32, borderRadius: 8 }} />
       </div>
-    </div>
+    </article>
   );
 }
 

@@ -14,10 +14,8 @@ const PAGE_TITLES: Record<string, string> = {
   '/akis': 'Akış',
   '/kesfet': 'Keşfet',
   '/kutuphane': 'Kütüphanem',
-  '/listelerim': 'Listelerim',
   '/bildirimler': 'Bildirimler',
   '/ayarlar': 'Ayarlar',
-  '/begeniler': 'Beğeniler',
 };
 
 function getPageTitle(pathname: string): string {
@@ -29,7 +27,7 @@ function getPageTitle(pathname: string): string {
 }
 
 function shouldShowBack(pathname: string): boolean {
-  const backPaths = ['/profil/', '/ayarlar', '/liste/', '/bildirimler', '/icerik/', '/begeniler'];
+  const backPaths = ['/profil/', '/ayarlar', '/liste/', '/bildirimler', '/icerik/'];
   return backPaths.some(path => pathname.includes(path));
 }
 
@@ -338,7 +336,7 @@ function VoidBottomNav() {
     const path = location.pathname;
     if (path === '/' || path === '/akis') return 'feed';
     if (path.startsWith('/kesfet')) return 'explore';
-    if (path.startsWith('/kutuphane') || path.startsWith('/listelerim')) return 'library';
+    if (path.startsWith('/kutuphane')) return 'library';
     if (path.startsWith('/profil')) return 'profile';
     return 'feed';
   };

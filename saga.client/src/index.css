@@ -2,6 +2,29 @@
   box-sizing: border-box;
 }
 
+/* Form elementleri için genel reset - browser varsayılanlarını kaldır */
+input,
+textarea,
+select {
+  background-color: rgba(15, 15, 20, 0.9) !important;
+  color: var(--text-primary, #fff) !important;
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  appearance: none !important;
+}
+
+/* Autofill stillerini override et */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+textarea:-webkit-autofill,
+textarea:-webkit-autofill:hover,
+textarea:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--text-primary, #fff) !important;
+  -webkit-box-shadow: 0 0 0px 1000px rgba(15, 15, 20, 0.9) inset !important;
+  transition: background-color 5000s ease-in-out 0s;
+}
+
 html {
   /* Safari uyumluluk için webkit prefix önce */
   -webkit-text-size-adjust: 100%;

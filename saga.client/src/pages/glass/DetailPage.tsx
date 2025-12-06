@@ -216,6 +216,11 @@ export default function DetailPage() {
       if (feedResult.status === 'fulfilled') {
         contentActivities = feedResult.value.data
           .filter((a: Aktivite) => a.icerikId === icerikId)
+          // Yorum aktivitelerini gösterme - zaten yorumlar sekmesinde gösteriliyor
+          .filter((a: Aktivite) => {
+            const tur = (a.aktiviteTuru || a.aktiviteTipiStr || '').toLowerCase();
+            return tur !== 'yorum';
+          })
           .slice(0, 10);
         setAktiviteler(contentActivities);
       }
@@ -431,15 +436,46 @@ export default function DetailPage() {
   const handleLikeComment = async (yorumId: number) => {
     if (!requireAuth('beğenmek')) return;
 
-    try {
-      const result = await yorumApi.toggleBegeni(yorumId);
+    // Optimistic update - UI'ı hemen güncelle
+    const optimisticUpdate = (begendi: boolean, delta: number) => {
       setYorumlar((prev) =>
         prev.map((y) => {
-          // Ana yorum mu kontrol et
+          if (y.id === yorumId) {
+            return { ...y, kullaniciBegendiMi: begendi, begeniSayisi: (y.begeniSayisi || 0) + delta };
+          }
+          if (y.yanitlar && y.yanitlar.length > 0) {
+            const updatedYanitlar = y.yanitlar.map((yanit) =>
+              yanit.id === yorumId
+                ? { ...yanit, kullaniciBegendiMi: begendi, begeniSayisi: (yanit.begeniSayisi || 0) + delta }
+                : yanit
+            );
+            return { ...y, yanitlar: updatedYanitlar };
+          }
+          return y;
+        })
+      );
+    };
+
+    // Mevcut durumu bul
+    let currentBegendi = false;
+    yorumlar.forEach(y => {
+      if (y.id === yorumId) currentBegendi = y.kullaniciBegendiMi || false;
+      y.yanitlar?.forEach(yanit => {
+        if (yanit.id === yorumId) currentBegendi = yanit.kullaniciBegendiMi || false;
+      });
+    });
+
+    // Hemen güncelle
+    optimisticUpdate(!currentBegendi, currentBegendi ? -1 : 1);
+
+    try {
+      const result = await yorumApi.toggleBegeni(yorumId);
+      // API sonucuyla senkronize et
+      setYorumlar((prev) =>
+        prev.map((y) => {
           if (y.id === yorumId) {
             return { ...y, kullaniciBegendiMi: result.begendi, begeniSayisi: result.begeniSayisi };
           }
-          // Yanıtlarda mı kontrol et
           if (y.yanitlar && y.yanitlar.length > 0) {
             const updatedYanitlar = y.yanitlar.map((yanit) =>
               yanit.id === yorumId
@@ -452,6 +488,8 @@ export default function DetailPage() {
         })
       );
     } catch (err) {
+      // Hata durumunda geri al
+      optimisticUpdate(currentBegendi, currentBegendi ? 1 : -1);
       console.error('Beğeni hatası:', err);
     }
   };
@@ -474,64 +512,148 @@ export default function DetailPage() {
   // Loading state
   if (loading) {
     return (
-      <div className="detail-page">
-        <div className="detail-skeleton">
-          {/* Hero Skeleton */}
-          <div className="skeleton-hero">
-            <div className="skeleton-hero-gradient"></div>
-          </div>
-          
-          {/* Main Content Skeleton */}
-          <div className="detail-main-content">
-            <div className="detail-content-grid">
-              {/* Poster Column */}
-              <div className="poster-column">
-                <div className="skeleton-poster skeleton-shimmer"></div>
-                <div className="skeleton-actions">
-                  <div className="skeleton-btn skeleton-shimmer"></div>
-                  <div className="skeleton-btn skeleton-shimmer"></div>
-                </div>
+      <div className="detail-page-wrapper">
+        {/* Hero Section Skeleton */}
+        <section className="detail-hero">
+          <div className="hero-backdrop skeleton-shimmer" style={{ background: 'var(--void-surface)' }}></div>
+          <div className="hero-overlay"></div>
+        </section>
+
+        {/* Main Content Skeleton */}
+        <main className="detail-main-content">
+          <div className="detail-content-grid">
+            {/* LEFT COLUMN - Poster & Actions */}
+            <aside className="poster-column">
+              <div className="poster-wrapper">
+                <div className="skeleton-shimmer" style={{ width: '100%', aspectRatio: '2/3', borderRadius: '20px' }}></div>
               </div>
               
-              {/* Info Column */}
-              <div className="info-column">
-                <div className="skeleton-badge skeleton-shimmer"></div>
-                <div className="skeleton-title skeleton-shimmer"></div>
-                <div className="skeleton-meta">
-                  <div className="skeleton-meta-item skeleton-shimmer"></div>
-                  <div className="skeleton-meta-item skeleton-shimmer"></div>
-                  <div className="skeleton-meta-item skeleton-shimmer"></div>
-                </div>
-                <div className="skeleton-overview">
-                  <div className="skeleton-text skeleton-shimmer"></div>
-                  <div className="skeleton-text skeleton-shimmer" style={{ width: '90%' }}></div>
-                  <div className="skeleton-text skeleton-shimmer" style={{ width: '75%' }}></div>
-                </div>
-                <div className="skeleton-rating-box skeleton-shimmer"></div>
+              {/* Action Buttons Skeleton */}
+              <div className="poster-actions">
+                <div className="skeleton-shimmer" style={{ flex: 1, height: '48px', borderRadius: '12px' }}></div>
+                <div className="skeleton-shimmer" style={{ width: '56px', height: '48px', borderRadius: '12px' }}></div>
               </div>
-            </div>
-            
-            {/* Tabs Skeleton */}
-            <div className="skeleton-tabs">
-              <div className="skeleton-tab skeleton-shimmer"></div>
-              <div className="skeleton-tab skeleton-shimmer"></div>
-              <div className="skeleton-tab skeleton-shimmer"></div>
-            </div>
-            
-            {/* Content Skeleton */}
-            <div className="skeleton-content-area">
-              <div className="skeleton-section-title skeleton-shimmer"></div>
-              <div className="skeleton-cards-row">
+
+              {/* Quick Stats Skeleton */}
+              <div className="quick-stats">
+                <div className="stat-item">
+                  <div className="skeleton-shimmer" style={{ width: '40px', height: '24px', borderRadius: '6px', margin: '0 auto 4px' }}></div>
+                  <div className="skeleton-shimmer" style={{ width: '60px', height: '12px', borderRadius: '4px', margin: '0 auto' }}></div>
+                </div>
+                <div className="stat-item">
+                  <div className="skeleton-shimmer" style={{ width: '40px', height: '24px', borderRadius: '6px', margin: '0 auto 4px' }}></div>
+                  <div className="skeleton-shimmer" style={{ width: '60px', height: '12px', borderRadius: '4px', margin: '0 auto' }}></div>
+                </div>
+                <div className="stat-item">
+                  <div className="skeleton-shimmer" style={{ width: '40px', height: '24px', borderRadius: '6px', margin: '0 auto 4px' }}></div>
+                  <div className="skeleton-shimmer" style={{ width: '60px', height: '12px', borderRadius: '4px', margin: '0 auto' }}></div>
+                </div>
+              </div>
+            </aside>
+
+            {/* CENTER COLUMN - Main Info */}
+            <div className="info-column">
+              {/* Content Type Badge Skeleton */}
+              <div className="skeleton-shimmer" style={{ width: '80px', height: '28px', borderRadius: '8px', marginBottom: '16px' }}></div>
+
+              {/* Title Skeleton */}
+              <div className="skeleton-shimmer" style={{ width: '70%', height: '40px', borderRadius: '8px', marginBottom: '16px' }}></div>
+
+              {/* Meta Info Skeleton */}
+              <div style={{ display: 'flex', gap: '16px', marginBottom: '24px', flexWrap: 'wrap' }}>
+                <div className="skeleton-shimmer" style={{ width: '80px', height: '20px', borderRadius: '4px' }}></div>
+                <div className="skeleton-shimmer" style={{ width: '100px', height: '20px', borderRadius: '4px' }}></div>
+                <div className="skeleton-shimmer" style={{ width: '120px', height: '20px', borderRadius: '4px' }}></div>
+              </div>
+
+              {/* Rating Section Skeleton */}
+              <div className="rating-section">
+                <div className="skeleton-shimmer" style={{ width: '140px', height: '90px', borderRadius: '16px' }}></div>
+                <div className="skeleton-shimmer" style={{ width: '140px', height: '90px', borderRadius: '16px' }}></div>
+                <div className="skeleton-shimmer" style={{ width: '180px', height: '90px', borderRadius: '16px' }}></div>
+              </div>
+
+              {/* Genres Skeleton */}
+              <div style={{ display: 'flex', gap: '8px', marginBottom: '24px', flexWrap: 'wrap' }}>
                 {[1, 2, 3, 4].map((i) => (
-                  <div key={i} className="skeleton-card">
-                    <div className="skeleton-card-poster skeleton-shimmer"></div>
-                    <div className="skeleton-card-title skeleton-shimmer"></div>
-                  </div>
+                  <div key={i} className="skeleton-shimmer" style={{ width: '70px', height: '32px', borderRadius: '16px' }}></div>
                 ))}
+              </div>
+
+              {/* Overview Skeleton */}
+              <div>
+                <div className="section-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div className="skeleton-shimmer" style={{ width: '20px', height: '20px', borderRadius: '4px' }}></div>
+                  <div className="skeleton-shimmer" style={{ width: '50px', height: '20px', borderRadius: '4px' }}></div>
+                </div>
+                <div className="skeleton-shimmer" style={{ width: '100%', height: '16px', borderRadius: '4px', marginBottom: '8px' }}></div>
+                <div className="skeleton-shimmer" style={{ width: '95%', height: '16px', borderRadius: '4px', marginBottom: '8px' }}></div>
+                <div className="skeleton-shimmer" style={{ width: '80%', height: '16px', borderRadius: '4px' }}></div>
+              </div>
+
+              {/* Cast Section Skeleton */}
+              <div className="cast-section">
+                <div className="section-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div className="skeleton-shimmer" style={{ width: '20px', height: '20px', borderRadius: '4px' }}></div>
+                  <div className="skeleton-shimmer" style={{ width: '100px', height: '20px', borderRadius: '4px' }}></div>
+                </div>
+                <div className="cast-scroll">
+                  {[1, 2, 3, 4, 5, 6].map((i) => (
+                    <div key={i} className="cast-card">
+                      <div className="skeleton-shimmer cast-photo"></div>
+                      <div className="skeleton-shimmer" style={{ width: '80%', height: '14px', borderRadius: '4px', marginTop: '8px' }}></div>
+                      <div className="skeleton-shimmer" style={{ width: '60%', height: '12px', borderRadius: '4px', marginTop: '4px' }}></div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Tabs Skeleton */}
+              <div className="tabs-container">
+                <div className="tabs-header">
+                  <div className="skeleton-shimmer tab-btn" style={{ width: '120px' }}></div>
+                  <div className="skeleton-shimmer tab-btn" style={{ width: '110px' }}></div>
+                  <div className="skeleton-shimmer tab-btn" style={{ width: '120px' }}></div>
+                </div>
+
+                {/* Tab Content Skeleton - Yorumlar style */}
+                <div className="tab-content active">
+                  {/* Comment Form Skeleton */}
+                  <div className="comment-form-card">
+                    <div className="comment-form-header">
+                      <div className="skeleton-shimmer" style={{ width: '40px', height: '40px', borderRadius: '50%' }}></div>
+                      <div className="skeleton-shimmer" style={{ flex: 1, height: '80px', borderRadius: '12px' }}></div>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '12px' }}>
+                      <div className="skeleton-shimmer" style={{ width: '100px', height: '40px', borderRadius: '10px' }}></div>
+                    </div>
+                  </div>
+
+                  {/* Comments List Skeleton */}
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="comment-card">
+                      <div style={{ display: 'flex', gap: '12px' }}>
+                        <div className="skeleton-shimmer" style={{ width: '44px', height: '44px', borderRadius: '50%', flexShrink: 0 }}></div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                            <div className="skeleton-shimmer" style={{ width: '100px', height: '16px', borderRadius: '4px' }}></div>
+                            <div className="skeleton-shimmer" style={{ width: '60px', height: '14px', borderRadius: '4px' }}></div>
+                          </div>
+                          <div className="skeleton-shimmer" style={{ width: '100%', height: '14px', borderRadius: '4px', marginBottom: '6px' }}></div>
+                          <div className="skeleton-shimmer" style={{ width: '85%', height: '14px', borderRadius: '4px', marginBottom: '12px' }}></div>
+                          <div style={{ display: 'flex', gap: '16px' }}>
+                            <div className="skeleton-shimmer" style={{ width: '50px', height: '24px', borderRadius: '6px' }}></div>
+                            <div className="skeleton-shimmer" style={{ width: '50px', height: '24px', borderRadius: '6px' }}></div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        </main>
       </div>
     );
   }
@@ -1034,6 +1156,11 @@ export default function DetailPage() {
                     value={yorumText}
                     onChange={(e) => setYorumText(e.target.value)}
                     rows={4}
+                    style={{
+                      backgroundColor: 'rgba(15, 15, 20, 0.9)',
+                      color: 'var(--text-primary)',
+                      border: '1px solid var(--glass-border)'
+                    }}
                   />
 
                   <div className="comment-form-options">
@@ -1160,9 +1287,11 @@ export default function DetailPage() {
 
               {/* Aktiviteler Tab */}
               <div className={`tab-content ${activeTab === 'aktiviteler' ? 'active' : ''}`}>
-                {aktiviteler.length > 0 ? (
+                {aktiviteler.filter(a => (a.aktiviteTuru || a.aktiviteTipiStr || '').toLowerCase() !== 'yorum').length > 0 ? (
                   <div className="detail-aktiviteler-list">
-                    {aktiviteler.map((aktivite, index) => (
+                    {aktiviteler
+                      .filter(a => (a.aktiviteTuru || a.aktiviteTipiStr || '').toLowerCase() !== 'yorum')
+                      .map((aktivite, index) => (
                       <FeedActivityCard 
                         key={aktivite.id} 
                         aktivite={aktivite}
@@ -1445,7 +1574,7 @@ function ReplyItem({ yanit, onLike, onReply }: ReplyItemProps) {
   });
   
   return (
-    <div className="comment-preview reply-item" style={{ padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+    <div className="comment-preview reply-item">
       <div className="comment-header">
         <img 
           src={yanit.kullaniciAvatar || `https://ui-avatars.com/api/?name=${yanit.kullaniciAdi}&background=d4a853&color=030304`}
@@ -1477,21 +1606,32 @@ function ReplyItem({ yanit, onLike, onReply }: ReplyItemProps) {
           Spoiler içeriyor - görmek için tıklayın
         </div>
       ) : (
-        <p className={`comment-text ${isLong && !expanded ? 'truncated' : ''}`} style={{ marginTop: '8px' }}>
-          {isLong && !expanded ? replyText.slice(0, 200) + '...' : replyText}
-        </p>
-      )}
-      
-      {isLong && !yanit.spoilerIceriyor && (
-        <button 
-          className="comment-expand-btn"
-          onClick={() => setExpanded(!expanded)}
-        >
-          {expanded ? 'Daha az göster' : 'Devamını oku'}
-          <span className="material-symbols-rounded">
-            {expanded ? 'expand_less' : 'expand_more'}
-          </span>
-        </button>
+        <>
+          {yanit.spoilerIceriyor && (
+            <button 
+              className="spoiler-hide-btn"
+              onClick={() => setSpoilerRevealed(false)}
+              style={{ marginTop: '8px', marginBottom: '4px' }}
+            >
+              <span className="material-symbols-rounded">visibility_off</span>
+              Spoiler'ı gizle
+            </button>
+          )}
+          <p className={`comment-text ${isLong && !expanded ? 'truncated' : ''}`} style={{ marginTop: yanit.spoilerIceriyor ? '4px' : '8px' }}>
+            {isLong && !expanded ? replyText.slice(0, 200) + '...' : replyText}
+          </p>
+          {isLong && (
+            <button 
+              className="comment-expand-btn"
+              onClick={() => setExpanded(!expanded)}
+            >
+              {expanded ? 'Daha az göster' : 'Devamını oku'}
+              <span className="material-symbols-rounded">
+                {expanded ? 'expand_less' : 'expand_more'}
+              </span>
+            </button>
+          )}
+        </>
       )}
 
       <div className="comment-actions">
@@ -1537,6 +1677,14 @@ interface CommentPreviewProps {
 function CommentPreview({ yorum, onLike, onDelete, onReply, isExpanded, onToggleExpand, isSpoilerRevealed, onToggleSpoiler }: CommentPreviewProps) {
   const navigate = useNavigate();
   const [showMenu, setShowMenu] = useState(false);
+  const [showAllReplies, setShowAllReplies] = useState(false);
+  
+  // Yanıtlar için limit
+  const REPLY_LIMIT = 2;
+  const hasMoreReplies = (yorum.yanitlar?.length || 0) > REPLY_LIMIT;
+  const visibleReplies = showAllReplies 
+    ? yorum.yanitlar 
+    : yorum.yanitlar?.slice(0, REPLY_LIMIT);
   
   // Önce tam içeriği (icerik), yoksa özeti kullan
   const commentText = yorum.icerik || yorum.icerikOzet || '';
@@ -1700,12 +1848,8 @@ function CommentPreview({ yorum, onLike, onDelete, onReply, isExpanded, onToggle
 
       {/* Yanıtlar */}
       {yorum.yanitlar && yorum.yanitlar.length > 0 && (
-        <div className="comment-replies" style={{ 
-          marginTop: '8px',
-          paddingTop: '8px',
-          borderTop: '1px solid rgba(255,255,255,0.05)'
-        }}>
-          {yorum.yanitlar.map((yanit) => (
+        <div className="comment-replies">
+          {visibleReplies?.map((yanit) => (
             <ReplyItem 
               key={yanit.id} 
               yanit={yanit} 
@@ -1713,6 +1857,20 @@ function CommentPreview({ yorum, onLike, onDelete, onReply, isExpanded, onToggle
               onReply={onReply} 
             />
           ))}
+          {hasMoreReplies && (
+            <button 
+              className="show-more-replies-btn"
+              onClick={() => setShowAllReplies(!showAllReplies)}
+            >
+              <span className="material-symbols-rounded">
+                {showAllReplies ? 'expand_less' : 'expand_more'}
+              </span>
+              {showAllReplies 
+                ? 'Yanıtları gizle' 
+                : `${(yorum.yanitlar?.length || 0) - REPLY_LIMIT} yanıt daha göster`
+              }
+            </button>
+          )}
         </div>
       )}
     </div>

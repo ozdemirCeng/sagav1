@@ -526,7 +526,7 @@
   margin-bottom: clamp(4px, 0.6vw, 8px);
 }
 
-.rating-value {
+.rating-box .rating-value {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -536,13 +536,13 @@
   color: var(--text-primary);
 }
 
-.rating-value svg,
-.rating-value .material-symbols-rounded {
+.rating-box .rating-value svg,
+.rating-box .rating-value .material-symbols-rounded {
   font-size: clamp(18px, 1.8vw, 24px);
   color: var(--gold-primary);
 }
 
-.rating-value .material-symbols-rounded.filled {
+.rating-box .rating-value .material-symbols-rounded.filled {
   font-variation-settings: 'FILL' 1;
 }
 
@@ -898,11 +898,394 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
+  
+  /* FeedPage activity-card için gerekli değişkenler */
+  --void: #030304;
+  --void-light: #0a0a0c;
+  --void-surface: #111115;
+  --void-elevated: #18181d;
+  --void-border: #25252d;
+  --gold: #d4a853;
+  --gold-dim: rgba(212, 168, 83, 0.15);
+  --gold-glow: rgba(212, 168, 83, 0.3);
+  --gold-light: #e4b863;
+  --text-primary: #ffffff;
+  --text-secondary: rgba(255, 255, 255, 0.7);
+  --text-muted: rgba(255, 255, 255, 0.45);
+  --glass-border: rgba(255, 255, 255, 0.06);
 }
 
+/* Activity Card Stilleri - DetailPage için */
 .detail-aktiviteler-list .activity-card {
+  background: var(--void-surface);
+  border: 1px solid var(--void-border);
+  border-radius: 16px;
+  padding: 16px;
+  transition: all 0.3s ease;
   max-width: 100%;
   margin: 0;
+}
+
+.detail-aktiviteler-list .activity-card:hover {
+  border-color: var(--gold);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3), 0 0 15px var(--gold-glow);
+}
+
+/* Activity Rating Display */
+.detail-aktiviteler-list .activity-rating {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--void-elevated);
+  border-radius: 12px;
+}
+
+.detail-aktiviteler-list .activity-rating .rating-stars {
+  display: flex;
+  gap: 2px;
+}
+
+.detail-aktiviteler-list .activity-rating .rating-stars .material-symbols-rounded {
+  font-size: 18px;
+  color: var(--gold);
+}
+
+.detail-aktiviteler-list .activity-rating .rating-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--gold);
+  margin-left: 8px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   AKTIVITE KARTI INLINE COMMENTS - DetailPage özel stilleri
+   Bu stiller sayfa yorumlarıyla (comment-preview) çakışmaması için
+   .detail-aktiviteler-list altında tanımlanmıştır
+═══════════════════════════════════════════════════════════════ */
+.detail-aktiviteler-list .inline-comments {
+  padding-top: 12px;
+  margin-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.detail-aktiviteler-list .inline-comment-input {
+  margin-bottom: 12px;
+}
+
+.detail-aktiviteler-list .inline-comment-input input {
+  width: 100% !important;
+  padding: 10px 12px !important;
+  border-radius: 8px !important;
+  border: 1px solid var(--gold) !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  color: var(--text-primary) !important;
+  font-size: 13px !important;
+  transition: all 0.2s ease;
+  box-shadow: 0 0 12px rgba(212, 168, 83, 0.2) !important;
+}
+
+.detail-aktiviteler-list .inline-comment-input input:focus {
+  outline: none !important;
+  border-color: var(--gold) !important;
+  box-shadow: 0 0 20px rgba(212, 168, 83, 0.35) !important;
+}
+
+.detail-aktiviteler-list .inline-comment-input input::placeholder {
+  color: var(--text-muted) !important;
+}
+
+/* Comment Input Row - Aktivite kartı içindeki yorum inputu */
+.detail-aktiviteler-list .comment-input-bar {
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.detail-aktiviteler-list .comment-input-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.detail-aktiviteler-list .comment-input-row input {
+  flex: 1;
+  padding: 8px 12px !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  border: 1px solid var(--gold) !important;
+  border-radius: 16px !important;
+  color: var(--text-primary) !important;
+  font-size: 13px !important;
+  transition: all 0.2s ease;
+  box-shadow: 0 0 12px rgba(212, 168, 83, 0.2);
+}
+
+.detail-aktiviteler-list .comment-input-row input:focus {
+  outline: none !important;
+  border-color: var(--gold) !important;
+  box-shadow: 0 0 20px rgba(212, 168, 83, 0.35) !important;
+}
+
+.detail-aktiviteler-list .comment-input-row input::placeholder {
+  color: var(--text-muted) !important;
+}
+
+.detail-aktiviteler-list .comment-post-btn {
+  padding: 6px 12px;
+  background: transparent;
+  border: none;
+  color: var(--gold);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+}
+
+.detail-aktiviteler-list .comment-post-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.detail-aktiviteler-list .send-comment-btn {
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: none;
+  background: var(--gold);
+  color: var(--void);
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.detail-aktiviteler-list .send-comment-btn:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.detail-aktiviteler-list .send-comment-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Inline Comments List */
+.detail-aktiviteler-list .inline-comments-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+/* Comment Item - Aktivite kartı içinde */
+.detail-aktiviteler-list .comment-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 8px 0;
+}
+
+.detail-aktiviteler-list .comment-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.detail-aktiviteler-list .avatar-placeholder {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--gold) 0%, #b8860b 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--void);
+  flex-shrink: 0;
+}
+
+.detail-aktiviteler-list .comment-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.detail-aktiviteler-list .comment-text {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  margin: 0 0 4px 0;
+  word-wrap: break-word;
+}
+
+.detail-aktiviteler-list .comment-username {
+  color: var(--text-primary);
+  font-weight: 600;
+  margin-right: 6px;
+  cursor: pointer;
+}
+
+.detail-aktiviteler-list .comment-username:hover {
+  color: var(--gold);
+}
+
+.detail-aktiviteler-list .comment-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.detail-aktiviteler-list .comment-like-btn {
+  background: none;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.2s ease;
+}
+
+.detail-aktiviteler-list .comment-like-btn:hover {
+  color: var(--text-primary);
+}
+
+.detail-aktiviteler-list .comment-like-btn.liked {
+  color: #ef4444;
+}
+
+.detail-aktiviteler-list .comment-like-btn .material-symbols-rounded {
+  font-size: 14px;
+}
+
+.detail-aktiviteler-list .comment-reply-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0;
+}
+
+.detail-aktiviteler-list .comment-reply-btn:hover {
+  color: var(--text-primary);
+}
+
+/* Yanıtlar */
+.detail-aktiviteler-list .comment-replies {
+  margin-left: 38px;
+  margin-top: 4px;
+  padding-left: 12px;
+  border-left: 1px solid var(--void-border);
+}
+
+/* Replying to indicator */
+.detail-aktiviteler-list .replying-to {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: rgba(212, 168, 83, 0.1);
+  border-radius: 8px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: var(--gold);
+  border: 1px solid rgba(212, 168, 83, 0.2);
+}
+
+.detail-aktiviteler-list .cancel-reply {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.detail-aktiviteler-list .cancel-reply:hover {
+  color: var(--text-primary);
+}
+
+/* Comment menu */
+.detail-aktiviteler-list .comment-menu-container {
+  position: relative;
+}
+
+.detail-aktiviteler-list .comment-menu-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.detail-aktiviteler-list .comment-item:hover .comment-menu-btn {
+  opacity: 1;
+}
+
+.detail-aktiviteler-list .comment-menu-btn:hover {
+  color: var(--text-primary);
+}
+
+.detail-aktiviteler-list .comment-menu {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  background: var(--void-elevated);
+  border: 1px solid var(--void-border);
+  border-radius: 8px;
+  padding: 4px;
+  z-index: 100;
+  min-width: 100px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.detail-aktiviteler-list .comment-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.detail-aktiviteler-list .comment-menu button:hover {
+  background: var(--void-surface);
+  color: var(--text-primary);
+}
+
+.detail-aktiviteler-list .comment-menu button.delete {
+  color: #ef4444;
+}
+
+.detail-aktiviteler-list .comment-menu button.delete:hover {
+  background: rgba(239, 68, 68, 0.1);
+}
+
+/* No comments state */
+.detail-aktiviteler-list .no-comments-inline {
+  text-align: center;
+  padding: 16px;
+  color: var(--text-muted);
+  font-size: 13px;
 }
 
 /* Comment Preview Card */
@@ -913,6 +1296,54 @@
   border-radius: 16px;
   margin-bottom: 16px;
   transition: all 0.3s ease;
+}
+
+/* Reply Item - Yanıt yorumları için basit stil */
+.comment-preview.reply-item {
+  padding: 12px 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  margin-bottom: 0;
+}
+
+.comment-preview.reply-item:last-child {
+  border-bottom: none;
+}
+
+.comment-preview.reply-item:hover {
+  background: transparent;
+}
+
+/* Comment Replies Container */
+.comment-replies {
+  margin-top: 12px;
+  padding-left: 24px;
+}
+
+/* Show More Replies Button */
+.show-more-replies-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 0;
+  margin-top: 8px;
+  background: none;
+  border: none;
+  color: var(--gold-primary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: var(--font-body);
+}
+
+.show-more-replies-btn:hover {
+  color: var(--gold-secondary);
+}
+
+.show-more-replies-btn .material-symbols-rounded {
+  font-size: 18px;
 }
 
 .comment-preview:hover {
@@ -993,6 +1424,9 @@
   line-height: 1.6;
   color: var(--text-secondary);
   margin-bottom: 8px;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
 }
 
 .comment-text.truncated {
@@ -1254,27 +1688,36 @@
   color: var(--text-muted);
 }
 
-.comment-textarea {
+.comment-textarea,
+.detail-page .comment-textarea,
+textarea.comment-textarea {
   width: 100%;
   min-height: 120px;
   padding: 16px;
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(15, 15, 20, 0.9) !important;
+  background-color: rgba(15, 15, 20, 0.9) !important;
   border: 1px solid var(--glass-border);
   border-radius: 12px;
   font-family: var(--font-body);
   font-size: 14px;
-  color: var(--text-primary);
+  color: var(--text-primary) !important;
   resize: vertical;
   transition: all 0.3s ease;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
 }
 
-.comment-textarea::placeholder {
-  color: var(--text-muted);
+.comment-textarea::placeholder,
+textarea.comment-textarea::placeholder {
+  color: var(--text-muted) !important;
 }
 
-.comment-textarea:focus {
+.comment-textarea:focus,
+textarea.comment-textarea:focus {
   outline: none;
   border-color: var(--gold-primary);
+  background: rgba(15, 15, 20, 0.95) !important;
   box-shadow: 0 0 0 3px rgba(212, 168, 83, 0.1);
 }
 
@@ -1924,7 +2367,7 @@
     color: var(--text-muted);
   }
   
-  .rating-value {
+  .rating-box .rating-value {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1933,7 +2376,7 @@
     font-weight: 700;
   }
   
-  .rating-value .material-symbols-rounded {
+  .rating-box .rating-value .material-symbols-rounded {
     font-size: 12px;
   }
   
@@ -2195,12 +2638,12 @@
     letter-spacing: 0.2px;
   }
   
-  .rating-value {
+  .rating-box .rating-value {
     font-size: 14px;
     gap: 2px;
   }
   
-  .rating-value .material-symbols-rounded {
+  .rating-box .rating-value .material-symbols-rounded {
     font-size: 12px;
   }
   

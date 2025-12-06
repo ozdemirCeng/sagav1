@@ -226,6 +226,16 @@ namespace Saga.Server.Controllers
                 // Soft delete
                 yorum.Silindi = true;
                 yorum.GuncellemeZamani = DateTime.UtcNow;
+                
+                // İlgili aktiviteyi de sil (yorum aktivitesi)
+                var yorumAktivitesi = await _context.Aktiviteler
+                    .FirstOrDefaultAsync(a => a.YorumId == id && !a.Silindi);
+                
+                if (yorumAktivitesi != null)
+                {
+                    yorumAktivitesi.Silindi = true;
+                }
+                
                 await _context.SaveChangesAsync();
 
                 return NoContent();

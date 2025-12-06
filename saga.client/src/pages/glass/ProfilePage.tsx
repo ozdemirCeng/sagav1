@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { kullaniciApi, aktiviteApi, kutuphaneApi, listeApi } from '../../services/api';
 import type { ListeIcerik, Aktivite } from '../../services/api';
@@ -261,8 +261,13 @@ interface TakipKullaniciDto {
 const ProfilePage: React.FC = () => {
   const { kullaniciAdi } = useParams<{ kullaniciAdi: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user, loading: authLoading } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // URL parametrelerini oku
+  const tabParam = searchParams.get('tab');
+  const listeIdParam = searchParams.get('listeId');
 
   // State
   const [profil, setProfil] = useState<KullaniciProfilDto | null>(null);
@@ -270,7 +275,14 @@ const ProfilePage: React.FC = () => {
   const [kutuphane, setKutuphane] = useState<KutuphaneItemDto[]>([]);
   const [listeler, setListeler] = useState<ListeDto[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<ProfileTab>('aktivite');
+  // URL'den tab parametresi varsa onu kullan
+  const getInitialTab = (): ProfileTab => {
+    if (tabParam === 'listeler' || tabParam === 'listelerim') return 'listelerim';
+    if (tabParam === 'kutuphane') return 'kutuphane';
+    if (tabParam === 'izlediklerim') return 'izlediklerim';
+    return 'aktivite';
+  };
+  const [activeTab, setActiveTab] = useState<ProfileTab>(getInitialTab());
   const [followLoading, setFollowLoading] = useState(false);
 
   // Edit Modal State
@@ -321,6 +333,13 @@ const ProfilePage: React.FC = () => {
     return getMyFollowingCache() || new Set();
   });
   const [modalFollowLoading, setModalFollowLoading] = useState<string | null>(null);
+  
+  // Aktivite infinite scroll state'leri
+  const [aktiviteSayfa, setAktiviteSayfa] = useState(1);
+  const [aktiviteHasMore, setAktiviteHasMore] = useState(true);
+  const [aktiviteLoadingMore, setAktiviteLoadingMore] = useState(false);
+  const aktiviteObserverRef = useRef<IntersectionObserver | null>(null);
+  const aktiviteLoadMoreRef = useRef<HTMLDivElement>(null);
   
   // Çift yükleme önleme
   const isDataLoadedRef = useRef(false);
@@ -385,27 +404,63 @@ const ProfilePage: React.FC = () => {
     }
   }, [kullaniciAdi, navigate]);
 
-  // Aktiviteler (cache destekli)
+  // Aktiviteler (cache destekli) - ilk sayfa
   const fetchAktiviteler = useCallback(async (profilId: string, forceRefresh = false) => {
     if (!profilId) return;
+    
+    // Sayfa state'lerini sıfırla
+    setAktiviteSayfa(1);
+    setAktiviteHasMore(true);
     
     if (!forceRefresh) {
       const cached = getActivitiesCache(profilId);
       if (cached) {
         setAktiviteler(cached);
+        // Cache'den geldiyse bile hasMore true olsun, scroll edilince yenileri çeksin
         return;
       }
     }
     
     try {
-      const response = await aktiviteApi.getKullaniciAktiviteleri(profilId, { sayfaBoyutu: 20 });
+      const response = await aktiviteApi.getKullaniciAktiviteleri(profilId, { sayfa: 1, sayfaBoyutu: 20 });
       const data = response.data || [];
       setActivitiesCache(profilId, data);
       setAktiviteler(data);
+      setAktiviteHasMore(data.length >= 20);
     } catch (error) {
       console.error('Aktiviteler yüklenirken hata:', error);
     }
   }, []);
+
+  // Aktiviteler - sonraki sayfalar (infinite scroll)
+  const loadMoreAktiviteler = useCallback(async () => {
+    if (!profil?.id || aktiviteLoadingMore || !aktiviteHasMore) return;
+    
+    setAktiviteLoadingMore(true);
+    const nextPage = aktiviteSayfa + 1;
+    
+    try {
+      const response = await aktiviteApi.getKullaniciAktiviteleri(profil.id, { sayfa: nextPage, sayfaBoyutu: 20 });
+      const data = response.data || [];
+      
+      if (data.length > 0) {
+        setAktiviteler(prev => {
+          // Duplicate kontrolü
+          const existingIds = new Set(prev.map(a => a.id));
+          const newItems = data.filter((a: Aktivite) => !existingIds.has(a.id));
+          return [...prev, ...newItems];
+        });
+        setAktiviteSayfa(nextPage);
+        setAktiviteHasMore(data.length >= 20);
+      } else {
+        setAktiviteHasMore(false);
+      }
+    } catch (error) {
+      console.error('Daha fazla aktivite yüklenirken hata:', error);
+    } finally {
+      setAktiviteLoadingMore(false);
+    }
+  }, [profil?.id, aktiviteLoadingMore, aktiviteHasMore, aktiviteSayfa]);
 
   // Kütüphane (cache destekli)
   const fetchKutuphane = useCallback(async (profilId: string, forceRefresh = false) => {
@@ -516,6 +571,50 @@ const ProfilePage: React.FC = () => {
     
     prefetchFollowData();
   }, [profil?.id, fetchAktiviteler, fetchKutuphane, fetchListeler, user?.id]);
+
+  // Aktivite infinite scroll - IntersectionObserver
+  useEffect(() => {
+    if (activeTab !== 'aktivite') return;
+    
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && aktiviteHasMore && !aktiviteLoadingMore) {
+          loadMoreAktiviteler();
+        }
+      },
+      { threshold: 0.1, rootMargin: '100px' }
+    );
+    
+    aktiviteObserverRef.current = observer;
+    
+    if (aktiviteLoadMoreRef.current) {
+      observer.observe(aktiviteLoadMoreRef.current);
+    }
+    
+    return () => {
+      observer.disconnect();
+    };
+  }, [activeTab, aktiviteHasMore, aktiviteLoadingMore, loadMoreAktiviteler]);
+
+  // URL'den listeId parametresi varsa o listeyi otomatik aç (sadece bir kez)
+  const listeIdHandledRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (listeIdParam && listeler.length > 0 && listeIdHandledRef.current !== listeIdParam) {
+      const targetListeId = parseInt(listeIdParam, 10);
+      const targetListe = listeler.find(l => l.id === targetListeId);
+      if (targetListe) {
+        listeIdHandledRef.current = listeIdParam;
+        handleOpenList(targetListe);
+        // Liste açıldıktan sonra o bölüme scroll yap
+        setTimeout(() => {
+          const listSection = document.querySelector('.selected-list-contents');
+          if (listSection) {
+            listSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+        }, 500);
+      }
+    }
+  }, [listeIdParam, listeler]);
 
   // Follow/Unfollow
   const handleToggleFollow = async () => {
@@ -963,16 +1062,108 @@ const ProfilePage: React.FC = () => {
   if (authLoading || loading) {
     return (
       <div className="profile-page">
-        <div className="profile-hero">
-          <div className="profile-cover skeleton" />
+        {/* Hero Section Skeleton */}
+        <section className="profile-hero">
+          <div className="profile-cover skeleton-shimmer" />
+          
           <div className="profile-info">
+            {/* Avatar Skeleton */}
             <div className="profile-avatar-wrapper">
-              <div className="profile-avatar skeleton" />
+              <div className="profile-avatar skeleton-shimmer" />
             </div>
-            <div style={{ height: 28, width: 150 }} className="skeleton" />
-            <div style={{ height: 18, width: 100, marginTop: 8 }} className="skeleton" />
+
+            {/* Details Skeleton */}
+            <div className="profile-details">
+              <div className="skeleton-shimmer" style={{ height: 28, width: 180, borderRadius: 8, marginBottom: 8 }} />
+              <div className="skeleton-shimmer" style={{ height: 18, width: 120, borderRadius: 6, marginBottom: 16 }} />
+              <div className="skeleton-shimmer" style={{ height: 16, width: '80%', maxWidth: 300, borderRadius: 4 }} />
+            </div>
+
+            {/* Stats Skeleton */}
+            <div className="profile-stats">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="profile-stat">
+                  <div className="skeleton-shimmer" style={{ height: 24, width: 40, borderRadius: 6, marginBottom: 4 }} />
+                  <div className="skeleton-shimmer" style={{ height: 14, width: 50, borderRadius: 4 }} />
+                </div>
+              ))}
+            </div>
+
+            {/* Actions Skeleton */}
+            <div className="profile-actions">
+              <div className="skeleton-shimmer" style={{ height: 44, width: 160, borderRadius: 12 }} />
+            </div>
           </div>
-        </div>
+        </section>
+
+        {/* Main Content Skeleton */}
+        <main className="profile-main-content">
+          {/* Watch Stats Skeleton */}
+          <section className="watch-stats">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="watch-stat-card">
+                <div className="skeleton-shimmer" style={{ width: 48, height: 48, borderRadius: 12, marginBottom: 8 }} />
+                <div className="skeleton-shimmer" style={{ width: 40, height: 28, borderRadius: 6, marginBottom: 4 }} />
+                <div className="skeleton-shimmer" style={{ width: 50, height: 14, borderRadius: 4 }} />
+              </div>
+            ))}
+          </section>
+
+          {/* Achievements Section Skeleton */}
+          <section className="profile-section">
+            <div className="section-header">
+              <div className="skeleton-shimmer" style={{ height: 24, width: 100, borderRadius: 6 }} />
+            </div>
+            <div className="achievements-grid">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="achievement-card">
+                  <div className="skeleton-shimmer" style={{ width: 56, height: 56, borderRadius: 16, marginBottom: 12 }} />
+                  <div className="skeleton-shimmer" style={{ width: 80, height: 14, borderRadius: 4, marginBottom: 6 }} />
+                  <div className="skeleton-shimmer" style={{ width: 100, height: 12, borderRadius: 4 }} />
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* Genre Chart Skeleton */}
+          <section className="profile-section">
+            <div className="section-header">
+              <div className="skeleton-shimmer" style={{ height: 24, width: 120, borderRadius: 6 }} />
+            </div>
+            <div className="genre-chart">
+              <div className="genre-bars">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="genre-bar-item">
+                    <div className="skeleton-shimmer" style={{ width: 50, height: 14, borderRadius: 4 }} />
+                    <div className="genre-bar-wrapper">
+                      <div className="skeleton-shimmer" style={{ width: `${90 - i * 20}%`, height: '100%', borderRadius: 4 }} />
+                    </div>
+                    <div className="skeleton-shimmer" style={{ width: 30, height: 14, borderRadius: 4 }} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+
+          {/* Tabs Skeleton */}
+          <div className="profile-tabs">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="skeleton-shimmer profile-tab" style={{ width: 110, opacity: i === 1 ? 1 : 0.6 }} />
+            ))}
+          </div>
+
+          {/* Tab Content Skeleton */}
+          <section className="profile-section">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 16 }}>
+              {[1, 2, 3, 4, 5, 6].map((i) => (
+                <div key={i}>
+                  <div className="skeleton-shimmer" style={{ aspectRatio: '2/3', borderRadius: 12, marginBottom: 8 }} />
+                  <div className="skeleton-shimmer" style={{ width: '80%', height: 14, borderRadius: 4 }} />
+                </div>
+              ))}
+            </div>
+          </section>
+        </main>
       </div>
     );
   }
@@ -1207,18 +1398,41 @@ const ProfilePage: React.FC = () => {
         {activeTab === 'aktivite' && (
           <section className="profile-section feed-page">
             {filteredAktiviteler.length > 0 ? (
-              <div className="profile-activity-feed activity-feed">
-                {filteredAktiviteler.map((akt, index) => (
-                  <FeedActivityCard
-                    key={akt.id}
-                    aktivite={akt}
-                    isLoggedIn={!!user}
-                    index={index}
-                    currentUserName={user?.kullaniciAdi}
-                    onDelete={(id) => setAktiviteler(prev => prev.filter(a => a.id !== id))}
-                  />
-                ))}
-              </div>
+              <>
+                <div className="profile-activity-feed activity-feed">
+                  {filteredAktiviteler.map((akt, index) => (
+                    <FeedActivityCard
+                      key={akt.id}
+                      aktivite={akt}
+                      isLoggedIn={!!user}
+                      index={index}
+                      currentUserName={user?.kullaniciAdi}
+                      onDelete={(id) => setAktiviteler(prev => prev.filter(a => a.id !== id))}
+                    />
+                  ))}
+                </div>
+                
+                {/* Infinite Scroll Trigger */}
+                {aktiviteHasMore && (
+                  <div 
+                    ref={aktiviteLoadMoreRef} 
+                    className="load-more-trigger"
+                    style={{ padding: '20px', textAlign: 'center' }}
+                  >
+                    {aktiviteLoadingMore && (
+                      <div className="loading-spinner">
+                        <span className="spinner" />
+                      </div>
+                    )}
+                  </div>
+                )}
+                
+                {!aktiviteHasMore && filteredAktiviteler.length > 20 && (
+                  <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px' }}>
+                    Tüm aktiviteler yüklendi
+                  </div>
+                )}
+              </>
             ) : (
               <div className="empty-state">
                 <div className="empty-state-icon">

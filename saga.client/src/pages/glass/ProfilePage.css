@@ -1869,7 +1869,8 @@
    LOADING SKELETON
 ═══════════════════════════════════════════════════════════════ */
 
-.skeleton {
+.skeleton,
+.skeleton-shimmer {
   background: linear-gradient(90deg, var(--void-surface, #111115) 0%, var(--void-elevated, #18181c) 50%, var(--void-surface, #111115) 100%);
   background-size: 200% 100%;
   animation: skeleton-loading 1.5s infinite;

@@ -143,9 +143,8 @@ namespace Saga.Server.Controllers
                 // Sadece gönderilen değerleri güncelle, boş string'leri yoksay
                 if (!string.IsNullOrWhiteSpace(dto.GoruntulemeAdi))
                     kullanici.GoruntulemeAdi = dto.GoruntulemeAdi;
-                // Biyografi için null kontrolü - boş string de kabul edilir (biyografi silme)
-                if (dto.Biyografi != null)
-                    kullanici.Biyografi = string.IsNullOrWhiteSpace(dto.Biyografi) ? null : dto.Biyografi;
+                if (!string.IsNullOrWhiteSpace(dto.Biyografi))
+                    kullanici.Biyografi = dto.Biyografi;
                 if (!string.IsNullOrWhiteSpace(dto.AvatarUrl))
                     kullanici.AvatarUrl = dto.AvatarUrl;
                     

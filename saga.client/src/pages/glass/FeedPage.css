@@ -7,7 +7,7 @@
    CSS VARIABLES (VOID THEME - ContentCard uyumlu)
 ═══════════════════════════════════════════════════════════════ */
 .feed-page {
-  --void: #030304;
+  --void: transparent;
   --void-light: #0a0a0c;
   --void-surface: #111115;
   --void-elevated: #18181d;
@@ -277,7 +277,7 @@ button.activity-username:hover {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: var(--void);
+  color: #030304;
   flex-shrink: 0;
   margin-left: auto;
 }
@@ -642,6 +642,62 @@ button.activity-username:hover {
 
 .compact-activity-info .content-user-comment {
   margin-top: 0;
+}
+
+.compact-activity-info .content-user-comment.spoiler-hidden {
+  position: relative;
+  cursor: pointer;
+}
+
+.compact-activity-info .content-user-comment.spoiler-hidden p {
+  filter: blur(6px);
+  user-select: none;
+}
+
+.compact-activity-info .spoiler-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-style: normal;
+}
+
+.compact-activity-info .spoiler-overlay .material-symbols-rounded {
+  font-size: 18px;
+  color: var(--gold);
+}
+
+.compact-activity-info .comment-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.compact-activity-info .spoiler-hide-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.compact-activity-info .spoiler-hide-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: var(--text-primary);
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -1213,6 +1269,16 @@ button.read-more-link:hover {
 @keyframes shimmer {
   0% { background-position: -200% 0; }
   100% { background-position: 200% 0; }
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(90deg, 
+    var(--void-elevated) 25%, 
+    var(--void-surface) 50%, 
+    var(--void-elevated) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
 }
 
 .activity-card.skeleton {

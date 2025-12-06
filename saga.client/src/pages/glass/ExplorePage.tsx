@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { 
   Search, Film, BookOpen, Star, Loader2, X, Tv,
-  ChevronRight, Sparkles, Heart, BadgeCheck,
+  Sparkles, Heart, BadgeCheck,
   Swords, Ghost, Laugh, Rocket, Wand2, SlidersHorizontal, Layers, User,
   TrendingUp, Clock, Calendar, ChevronDown, ChevronUp, Globe
 } from 'lucide-react';
@@ -816,11 +816,118 @@ function FilterPanel({
 
 function ContentSkeleton() {
   return (
-    <div>
-      <div className="aspect-[2/3] rounded-xl skeleton mb-2" />
-      <div className="h-4 w-full skeleton rounded mb-1" />
-      <div className="h-3 w-20 skeleton rounded" />
+    <div className="content-card">
+      <div className="skeleton-shimmer" style={{ aspectRatio: '2/3', borderRadius: '16px', marginBottom: '12px' }} />
+      <div className="skeleton-shimmer" style={{ height: '16px', width: '85%', borderRadius: '4px', marginBottom: '8px' }} />
+      <div className="skeleton-shimmer" style={{ height: '14px', width: '50%', borderRadius: '4px' }} />
     </div>
+  );
+}
+
+// Featured section için büyük skeleton
+function FeaturedSkeleton() {
+  return (
+    <div className="featured-card" style={{ background: 'var(--glass-bg)' }}>
+      <div className="skeleton-shimmer" style={{ position: 'absolute', inset: 0, borderRadius: '24px' }} />
+    </div>
+  );
+}
+
+// Liste kartı skeleton
+function ListSkeleton() {
+  return (
+    <div className="list-card" style={{ background: 'var(--glass-bg)' }}>
+      <div className="list-covers">
+        <div className="skeleton-shimmer" style={{ width: '100%', height: '100%' }} />
+      </div>
+      <div className="list-info">
+        <div className="skeleton-shimmer" style={{ height: '16px', width: '70%', borderRadius: '4px', marginBottom: '8px' }} />
+        <div className="skeleton-shimmer" style={{ height: '14px', width: '50%', borderRadius: '4px' }} />
+      </div>
+    </div>
+  );
+}
+
+// Kullanıcı kartı skeleton
+function UserSkeleton() {
+  return (
+    <div className="user-card" style={{ background: 'var(--glass-bg)' }}>
+      <div className="skeleton-shimmer" style={{ width: '64px', height: '64px', borderRadius: '50%', marginBottom: '12px' }} />
+      <div className="skeleton-shimmer" style={{ height: '16px', width: '80px', borderRadius: '4px', marginBottom: '8px' }} />
+      <div className="skeleton-shimmer" style={{ height: '32px', width: '100px', borderRadius: '8px' }} />
+    </div>
+  );
+}
+
+// Tam sayfa yükleme skeleton'u
+function PageLoadingSkeleton() {
+  return (
+    <>
+      {/* Featured Section Skeleton */}
+      <section className="featured-section">
+        <div className="section-header">
+          <div className="skeleton-shimmer" style={{ height: '24px', width: '120px', borderRadius: '6px' }} />
+        </div>
+        <div className="featured-slider">
+          {[1, 2, 3, 4].map((i) => (
+            <FeaturedSkeleton key={i} />
+          ))}
+        </div>
+      </section>
+
+      {/* Trending Section Skeleton */}
+      <section className="trending-section">
+        <div className="section-header">
+          <div className="skeleton-shimmer" style={{ height: '24px', width: '80px', borderRadius: '6px' }} />
+        </div>
+        <div className="content-grid--horizontal" style={{ display: 'flex', gap: '16px', overflowX: 'hidden' }}>
+          {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+            <div key={i} style={{ minWidth: '180px' }}>
+              <ContentSkeleton />
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Genre Section Skeleton */}
+      <section className="genre-browse-section">
+        <div className="section-header">
+          <div className="skeleton-shimmer" style={{ height: '24px', width: '140px', borderRadius: '6px' }} />
+        </div>
+        <div className="genre-grid">
+          {[1, 2, 3, 4, 5, 6].map((i) => (
+            <div key={i} className="genre-card" style={{ background: 'var(--glass-bg)' }}>
+              <div className="skeleton-shimmer" style={{ width: '40px', height: '40px', borderRadius: '10px', marginBottom: '8px' }} />
+              <div className="skeleton-shimmer" style={{ height: '14px', width: '60px', borderRadius: '4px' }} />
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Lists Section Skeleton */}
+      <section className="lists-section">
+        <div className="section-header">
+          <div className="skeleton-shimmer" style={{ height: '24px', width: '140px', borderRadius: '6px' }} />
+        </div>
+        <div className="lists-slider">
+          {[1, 2, 3, 4].map((i) => (
+            <ListSkeleton key={i} />
+          ))}
+        </div>
+      </section>
+
+      {/* Users Section Skeleton */}
+      <section className="users-section">
+        <div className="section-header">
+          <div className="skeleton-shimmer" style={{ height: '24px', width: '160px', borderRadius: '6px' }} />
+        </div>
+        <div className="users-slider">
+          {[1, 2, 3, 4, 5, 6].map((i) => (
+            <UserSkeleton key={i} />
+          ))}
+        </div>
+      </section>
+    </>
   );
 }
 
@@ -1057,6 +1164,14 @@ export default function ExplorePage() {
   const [tmdbLoadingMore, setTmdbLoadingMore] = useState(false);
   const tmdbLoadingRef = useRef(false);
   const tmdbDataLoadedRef = useRef(hasCache && tmdbCacheData !== null);
+  
+  // Horizontal slider refs ve loading states
+  const featuredSliderRef = useRef<HTMLDivElement>(null);
+  const trendSliderRef = useRef<HTMLDivElement>(null);
+  const recommendationsSliderRef = useRef<HTMLDivElement>(null);
+  const [featuredLoadingMore, setFeaturedLoadingMore] = useState(false);
+  const [trendLoadingMore, setTrendLoadingMore] = useState(false);
+  const [recsLoadingMore, setRecsLoadingMore] = useState(false);
 
   // Kitap filters
   const [bookLang, setBookLang] = useState<string>(initialBookLang);
@@ -1865,6 +1980,22 @@ export default function ExplorePage() {
     return () => observer.disconnect();
   }, [activeTab]);
 
+  // Horizontal slider infinite scroll handler
+  const handleHorizontalScroll = useCallback((
+    e: React.UIEvent<HTMLDivElement>,
+    setLoadingMore: React.Dispatch<React.SetStateAction<boolean>>,
+    isLoadingMore: boolean
+  ) => {
+    const element = e.currentTarget;
+    const scrollRight = element.scrollWidth - element.scrollLeft - element.clientWidth;
+    
+    // Sağa 200px kala ve yükleme yoksa daha fazla veri çek
+    if (scrollRight < 200 && !isLoadingMore && tmdbHasMore && !tmdbLoadingRef.current) {
+      setLoadingMore(true);
+      setTmdbPage(prev => prev + 1);
+    }
+  }, [tmdbHasMore]);
+
   // Kitaplar için varsayılan veri yükle (tab değişince veya kategori/sıralama değişince)
   useEffect(() => {
     const loadBooksData = async () => {
@@ -2386,8 +2517,12 @@ export default function ExplorePage() {
             <div className="section-header">
               <h2 className="section-title">Öne Çıkanlar</h2>
             </div>
-            <div className="featured-slider">
-              {tmdbResults.slice(0, 4).map((film) => {
+            <div 
+              className="featured-slider"
+              ref={featuredSliderRef}
+              onScroll={(e) => handleHorizontalScroll(e, setFeaturedLoadingMore, featuredLoadingMore)}
+            >
+              {tmdbResults.map((film) => {
                 const mediaType = film.mediaType === 'tv' ? 'tv' : 'film';
                 // Backdrop tercih et, yoksa poster kullan
                 const backdropUrl = film.arkaplanUrl || 
@@ -2433,6 +2568,12 @@ export default function ExplorePage() {
                   </div>
                 );
               })}
+              {/* Loading indicator */}
+              {featuredLoadingMore && (
+                <div className="slider-loading">
+                  <Loader2 size={24} className="animate-spin" />
+                </div>
+              )}
             </div>
           </section>
         )}
@@ -2489,7 +2630,11 @@ export default function ExplorePage() {
                 <p>İzleme geçmişine göre öneriler</p>
               </div>
             </div>
-            <ContentGrid className="content-grid--horizontal">
+            <div 
+              className="content-grid--horizontal recommendations-slider"
+              ref={recommendationsSliderRef}
+              onScroll={(e) => handleHorizontalScroll(e, setRecsLoadingMore, recsLoadingMore)}
+            >
               {tmdbResults
                 .filter((film) => {
                   // Kullanıcının zaten izlediği/kütüphanesinde olan içerikleri filtrele
@@ -2498,7 +2643,7 @@ export default function ExplorePage() {
                   }
                   return true;
                 })
-                .slice(4, 12)
+                .slice(4)
                 .map((film) => {
                 const mediaType = film.mediaType === 'tv' ? 'tv' : 'film';
                 const matchPercent = calculateMatchPercentage(film, userPreferences, tmdbResults);
@@ -2519,7 +2664,13 @@ export default function ExplorePage() {
                   />
                 );
               })}
-            </ContentGrid>
+              {/* Loading indicator */}
+              {recsLoadingMore && (
+                <div className="slider-loading">
+                  <Loader2 size={24} className="animate-spin" />
+                </div>
+              )}
+            </div>
           </section>
         )}
 
@@ -2530,17 +2681,13 @@ export default function ExplorePage() {
           <section className="lists-section">
             <div className="section-header">
               <h2 className="section-title">Popüler Listeler</h2>
-              <button className="section-link" onClick={() => navigate('/listelerim')}>
-                Tümünü Gör
-                <ChevronRight size={16} />
-              </button>
             </div>
             <div className="lists-slider">
               {populerListeler.map((liste) => (
                 <div 
                   key={liste.id} 
                   className="list-card" 
-                  onClick={() => navigate(`/liste/${liste.id}`)}
+                  onClick={() => navigate(`/profil/${liste.kullaniciAdi}?tab=listeler&listeId=${liste.id}`)}
                 >
                   <div className="list-covers">
                     {liste.kapakGorselleri.slice(0, 3).map((url, i) => (
@@ -2652,12 +2799,22 @@ export default function ExplorePage() {
         )}
 
         {/* Loading State */}
-        {loading && (
-          <div className="content-grid">
-            {[...Array(12)].map((_, i) => (
-              <ContentSkeleton key={i} />
-            ))}
-          </div>
+        {loading && activeTab === 'tmdb' && (
+          <PageLoadingSkeleton />
+        )}
+        
+        {/* Kitaplar Loading State */}
+        {loading && activeTab === 'kitaplar' && (
+          <section className="trending-section">
+            <div className="section-header">
+              <div className="skeleton-shimmer" style={{ height: '24px', width: '100px', borderRadius: '6px' }} />
+            </div>
+            <div className="content-grid">
+              {[...Array(12)].map((_, i) => (
+                <ContentSkeleton key={i} />
+              ))}
+            </div>
+          </section>
         )}
 
         {/* TMDB Results */}
@@ -2671,12 +2828,16 @@ export default function ExplorePage() {
                     {searchQuery ? `"${searchQuery}" Sonuçları` : 'Trend'}
                   </h2>
                 </div>
-                <ContentGrid className="content-grid--horizontal">
-                  {tmdbResults.slice(0, 8).map((film, index) => {
+                <div 
+                  className="content-grid--horizontal trend-slider"
+                  ref={trendSliderRef}
+                  onScroll={(e) => handleHorizontalScroll(e, setTrendLoadingMore, trendLoadingMore)}
+                >
+                  {tmdbResults.map((film, index) => {
                     const mediaType = film.mediaType === 'tv' ? 'tv' : 'film';
                     return (
                       <ContentCard
-                        key={`${mediaType}-${film.id}`}
+                        key={`trend-${mediaType}-${film.id}`}
                         data={tmdbToCardData(film)}
                         size="lg"
                         showBadge={true}
@@ -2684,15 +2845,21 @@ export default function ExplorePage() {
                         showImportOverlay={!film.sagaIcerikId}
                         importing={importing === film.id}
                         onImport={() => handleImport(film.id, mediaType)}
-                        rank={index + 1}
+                        rank={index < 10 ? index + 1 : undefined}
                       />
                     );
                   })}
-                </ContentGrid>
+                  {/* Loading indicator */}
+                  {trendLoadingMore && (
+                    <div className="slider-loading">
+                      <Loader2 size={24} className="animate-spin" />
+                    </div>
+                  )}
+                </div>
               </section>
             )}
 
-            {/* More Results Grid */}
+            {/* More Results Grid - Daha Fazla */}
             {tmdbResults.length > 8 && (
               <section className="trending-section">
                 <div className="section-header">
@@ -2703,11 +2870,13 @@ export default function ExplorePage() {
                     const mediaType = film.mediaType === 'tv' ? 'tv' : 'film';
                     return (
                       <ContentCard
-                        key={`${mediaType}-${film.id}`}
+                        key={`more-${mediaType}-${film.id}`}
                         data={tmdbToCardData(film)}
+                        showBadge={true}
+                        showRatings={true}
                         showImportOverlay={!film.sagaIcerikId}
-                        onImport={() => handleImport(film.id, mediaType)}
                         importing={importing === film.id}
+                        onImport={() => handleImport(film.id, mediaType)}
                       />
                     );
                   })}
