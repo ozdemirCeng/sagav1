@@ -39,11 +39,11 @@ content_data: List[dict] = []
 HF_TOKEN = os.getenv("HF_TOKEN", "")
 
 # En iyi ücretsiz modeller (HuggingFace Inference Providers):
-# - Qwen/Qwen2.5-72B-Instruct (en güçlü ücretsiz)
-# - meta-llama/Llama-3.3-70B-Instruct
-# - mistralai/Mistral-Small-24B-Instruct-2501
+# - meta-llama/Llama-3.2-3B-Instruct (küçük, hızlı)
+# - Qwen/Qwen2.5-7B-Instruct (orta)
+# - mistralai/Mistral-7B-Instruct-v0.3 (popüler)
 # ":fastest" ekleyerek en hızlı provider'ı seçebiliriz
-LLM_MODEL_NAME = "Qwen/Qwen2.5-72B-Instruct"
+LLM_MODEL_NAME = "meta-llama/Llama-3.2-3B-Instruct"
 
 # HuggingFace InferenceClient - Otomatik provider seçimi yapar
 hf_client: InferenceClient = None
@@ -229,9 +229,9 @@ async def call_hf_inference_api(prompt: str, max_tokens: int = 300, system_promp
         print(f"❌ HF InferenceClient hatası: {e}")
         # Alternatif model dene
         try:
-            print("🔄 Alternatif model deneniyor: meta-llama/Llama-3.3-70B-Instruct")
+            print("🔄 Alternatif model deneniyor: microsoft/Phi-3.5-mini-instruct")
             response = client.chat.completions.create(
-                model="meta-llama/Llama-3.3-70B-Instruct",
+                model="microsoft/Phi-3.5-mini-instruct",
                 messages=messages,
                 max_tokens=max_tokens,
                 temperature=0.5
