@@ -6,19 +6,19 @@ HuggingFace Spaces üzerinde çalışacak semantic search + LLM servisi
 import os
 import json
 import numpy as np
+import httpx
 from typing import List, Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 import faiss
-from huggingface_hub import InferenceClient
 
 # FastAPI app
 app = FastAPI(
     title="Saga AI Service",
     description="Film ve kitap için semantic search + LLM servisi",
-    version="4.0.0"
+    version="4.1.0"
 )
 
 # CORS ayarları
@@ -35,18 +35,15 @@ model: SentenceTransformer = None
 index: faiss.IndexFlatIP = None
 content_data: List[dict] = []
 
-# HuggingFace Inference Client (Otomatik ücretsiz provider seçimi)
+# HuggingFace Router API (OpenAI uyumlu)
+HF_ROUTER_URL = "https://router.huggingface.co/v1/chat/completions"
 HF_TOKEN = os.getenv("HF_TOKEN", "")
 
-# En iyi ücretsiz modeller (HuggingFace Inference Providers):
-# - meta-llama/Llama-3.2-3B-Instruct (küçük, hızlı)
-# - Qwen/Qwen2.5-7B-Instruct (orta)
-# - mistralai/Mistral-7B-Instruct-v0.3 (popüler)
-# ":fastest" ekleyerek en hızlı provider'ı seçebiliriz
+# Ücretsiz modeller - :fastest ile en hızlı provider seçilir
+# - meta-llama/Llama-3.2-3B-Instruct
+# - microsoft/Phi-3.5-mini-instruct  
+# - Qwen/Qwen2.5-7B-Instruct
 LLM_MODEL_NAME = "meta-llama/Llama-3.2-3B-Instruct"
-
-# HuggingFace InferenceClient - Otomatik provider seçimi yapar
-hf_client: InferenceClient = None
 
 # Pydantic modelleri
 class SearchRequest(BaseModel):
@@ -192,55 +189,56 @@ def load_model():
     return model
 
 
-def load_hf_client():
-    """HuggingFace InferenceClient yükle"""
-    global hf_client
-    if hf_client is None:
-        print(f"🔄 HuggingFace InferenceClient yükleniyor... Model: {LLM_MODEL_NAME}")
-        hf_client = InferenceClient(token=HF_TOKEN if HF_TOKEN else None)
-        print("✅ HuggingFace InferenceClient hazır!")
-    return hf_client
+async def call_hf_router_api(messages: list, max_tokens: int = 300) -> str:
+    """HuggingFace Router API ile LLM çağır (OpenAI uyumlu)"""
+    
+    headers = {
+        "Content-Type": "application/json"
+    }
+    
+    # Token varsa ekle
+    if HF_TOKEN:
+        headers["Authorization"] = f"Bearer {HF_TOKEN}"
+    
+    payload = {
+        "model": LLM_MODEL_NAME,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": 0.5,
+        "stream": False
+    }
+    
+    try:
+        async with httpx.AsyncClient(timeout=90.0) as client:
+            response = await client.post(
+                HF_ROUTER_URL,
+                headers=headers,
+                json=payload
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                if "choices" in result and len(result["choices"]) > 0:
+                    return result["choices"][0]["message"]["content"]
+                return None
+            else:
+                print(f"❌ HF Router API hatası: {response.status_code} - {response.text[:500]}")
+                return None
+                
+    except Exception as e:
+        print(f"❌ HF Router API çağrı hatası: {e}")
+        return None
 
 
 async def call_hf_inference_api(prompt: str, max_tokens: int = 300, system_prompt: str = None) -> str:
-    """HuggingFace InferenceClient ile LLM çağır"""
+    """HuggingFace Router API ile LLM çağır"""
     
-    client = load_hf_client()
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
     
-    try:
-        messages = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": prompt})
-        
-        # Chat completion kullan - otomatik olarak en iyi provider seçilir
-        response = client.chat.completions.create(
-            model=LLM_MODEL_NAME,
-            messages=messages,
-            max_tokens=max_tokens,
-            temperature=0.5
-        )
-        
-        if response and response.choices:
-            return response.choices[0].message.content
-        return None
-                
-    except Exception as e:
-        print(f"❌ HF InferenceClient hatası: {e}")
-        # Alternatif model dene
-        try:
-            print("🔄 Alternatif model deneniyor: microsoft/Phi-3.5-mini-instruct")
-            response = client.chat.completions.create(
-                model="microsoft/Phi-3.5-mini-instruct",
-                messages=messages,
-                max_tokens=max_tokens,
-                temperature=0.5
-            )
-            if response and response.choices:
-                return response.choices[0].message.content
-        except Exception as e2:
-            print(f"❌ Alternatif model de başarısız: {e2}")
-        return None
+    return await call_hf_router_api(messages, max_tokens)
 
 
 def create_search_text(item: dict) -> str:
@@ -937,24 +935,10 @@ Kurallar:
         for msg in request.messages:
             messages.append({"role": msg.role, "content": msg.content})
         
-        client = load_hf_client()
-        if not client:
-            return ChatResponse(
-                message="AI servisi şu anda kullanılamıyor. Lütfen daha sonra tekrar deneyin.",
-                suggestions=None
-            )
+        # HuggingFace Router API ile çağır
+        response_text = await call_hf_router_api(messages, request.max_tokens)
         
-        try:
-            completion = client.chat.completions.create(
-                model=LLM_MODEL_NAME,
-                messages=messages,
-                max_tokens=request.max_tokens,
-                temperature=0.7
-            )
-            
-            response_text = completion.choices[0].message.content
-        except Exception as api_err:
-            print(f"Chat API hatası: {api_err}")
+        if not response_text:
             return ChatResponse(
                 message="AI yanıt veremedi. Lütfen tekrar deneyin.",
                 suggestions=None
@@ -1002,27 +986,14 @@ Kurallar:
 
         user_prompt = request.question
         
-        client = load_hf_client()
-        if not client:
-            return ContentQuestionResponse(
-                answer="AI servisi şu anda kullanılamıyor.",
-                related_questions=None
-            )
+        # HuggingFace Router API ile çağır
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+        answer = await call_hf_router_api(messages, 400)
         
-        try:
-            completion = client.chat.completions.create(
-                model=LLM_MODEL_NAME,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                max_tokens=400,
-                temperature=0.6
-            )
-            
-            answer = completion.choices[0].message.content
-        except Exception as api_err:
-            print(f"Content question API hatası: {api_err}")
+        if not answer:
             return ContentQuestionResponse(
                 answer="AI yanıt veremedi. Lütfen tekrar deneyin.",
                 related_questions=None
@@ -1094,29 +1065,14 @@ JSON formatında yanıt ver:
 
 JSON formatında yanıt ver."""
 
-        client = load_hf_client()
-        if not client:
-            return AssistantResponse(
-                message="AI asistan şu anda kullanılamıyor. Arama yapabilir veya menüyü kullanabilirsiniz.",
-                action=None,
-                action_data=None,
-                suggestions=["Keşfet sayfasına git", "Kütüphaneme bak", "Arama yap"]
-            )
+        # HuggingFace Router API ile çağır
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+        response_text = await call_hf_router_api(messages, 400)
         
-        try:
-            completion = client.chat.completions.create(
-                model=LLM_MODEL_NAME,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                max_tokens=400,
-                temperature=0.5
-            )
-            
-            response_text = completion.choices[0].message.content
-        except Exception as api_err:
-            print(f"Assistant API hatası: {api_err}")
+        if not response_text:
             return AssistantResponse(
                 message="AI asistan yanıt veremedi. Lütfen tekrar deneyin.",
                 action=None,
@@ -1166,30 +1122,22 @@ async def summarize_content(content_title: str, content_type: str, spoiler_free:
 {spoiler_note}
 Türkçe yaz. 2-3 paragraf yeterli."""
 
-        client = load_hf_client()
-        if not client:
-            return {"summary": "AI servisi kullanılamıyor.", "spoiler_free": spoiler_free}
+        # HuggingFace Router API ile çağır
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"{content_title} hakkında özet ver."}
+        ]
+        summary = await call_hf_router_api(messages, 500)
         
-        try:
-            completion = client.chat.completions.create(
-                model=LLM_MODEL_NAME,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"{content_title} hakkında özet ver."}
-                ],
-                max_tokens=500,
-                temperature=0.6
-            )
-            
-            return {
-                "title": content_title,
-                "type": content_type,
-                "summary": completion.choices[0].message.content,
-                "spoiler_free": spoiler_free
-            }
-        except Exception as e:
-            print(f"Summarize API hatası: {e}")
-            return {"summary": f"Özet alınamadı: {str(e)}", "spoiler_free": spoiler_free}
+        if not summary:
+            return {"summary": "AI servisi şu anda kullanılamıyor.", "spoiler_free": spoiler_free}
+        
+        return {
+            "title": content_title,
+            "type": content_type,
+            "summary": summary,
+            "spoiler_free": spoiler_free
+        }
         
     except Exception as e:
         print(f"Summarize hatası: {e}")
