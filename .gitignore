@@ -41,6 +41,3 @@ scripts/
 
 # Neon schema (contains structure info)
 neon_schema.sql
-
-# saga-semantic (separate repository)
-saga-semantic/
