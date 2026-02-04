@@ -29,6 +29,8 @@ interface BookCacheEntry {
   hasMore: boolean;
   category: string;
   lang: string;
+  source: string;
+  onlyReadable: boolean;
   timestamp: number;
   seenIds: string[];
 }
@@ -116,11 +118,11 @@ export function clearTmdbCache(): void {
 // BOOK CACHE
 // ============================================
 
-export function getBookCache(category: string, lang: string): BookCacheEntry | null {
+export function getBookCache(category: string, lang: string, source: string, onlyReadable: boolean): BookCacheEntry | null {
   if (!bookCache) return null;
   
   // Aynı kategori ve dil mi?
-  if (bookCache.category !== category || bookCache.lang !== lang) {
+  if (bookCache.category !== category || bookCache.lang !== lang || bookCache.source !== source || bookCache.onlyReadable !== onlyReadable) {
     return null;
   }
   
@@ -140,6 +142,8 @@ export function setBookCache(
   hasMore: boolean,
   category: string,
   lang: string,
+  source: string,
+  onlyReadable: boolean,
   seenIds: string[]
 ): void {
   bookCache = {
@@ -149,6 +153,8 @@ export function setBookCache(
     hasMore,
     category,
     lang,
+    source,
+    onlyReadable,
     timestamp: Date.now(),
     seenIds,
   };

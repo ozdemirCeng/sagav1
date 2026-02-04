@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Saga.Server.Data;
 using Saga.Server.DTOs;
 using Saga.Server.Models;
+using Saga.Server.Services;
 
 namespace Saga.Server.Controllers
 {
@@ -13,11 +14,13 @@ namespace Saga.Server.Controllers
     {
         private readonly SagaDbContext _context;
         private readonly ILogger<KullaniciController> _logger;
+        private readonly IBildirimService _bildirimService;
 
-        public KullaniciController(SagaDbContext context, ILogger<KullaniciController> logger)
+        public KullaniciController(SagaDbContext context, ILogger<KullaniciController> logger, IBildirimService bildirimService)
         {
             _context = context;
             _logger = logger;
+            _bildirimService = bildirimService;
         }
 
         // GET: api/kullanici/profil (Kendi profilim)
@@ -92,6 +95,32 @@ namespace Saga.Server.Controllers
 
             var currentUserId = GetCurrentUserIdOrNull();
 
+            // 🔒 GİZLİLİK KONTROLÜ: Profil gizli mi kontrol et
+            var ayarlar = await _context.KullaniciAyarlari
+                .AsNoTracking()
+                .FirstOrDefaultAsync(a => a.KullaniciId == id);
+
+            var profilGizli = ayarlar?.ProfilGizli ?? false;
+            
+            // Profili görüntüleyebilir mi?
+            var kendisiMi = currentUserId.HasValue && currentUserId.Value == id;
+            var takipciMi = currentUserId.HasValue && 
+                await _context.Takipler.AnyAsync(t => t.TakipEdenId == currentUserId.Value && t.TakipEdilenId == id);
+            
+            // Gizli profil ve takipçi değilse sınırlı bilgi döndür
+            if (profilGizli && !kendisiMi && !takipciMi)
+            {
+                return Ok(new ProfilDto
+                {
+                    Id = kullanici.Id,
+                    KullaniciAdi = kullanici.KullaniciAdi,
+                    GoruntulemeAdi = kullanici.GoruntulemeAdi,
+                    AvatarUrl = kullanici.AvatarUrl,
+                    ProfilGizli = true, // Frontend'e gizli olduğunu bildir
+                    TakipEdiyorMu = false
+                });
+            }
+
             // İstatistikleri al
             var toplamPuanlama = await _context.Puanlamalar.CountAsync(p => p.KullaniciId == id && !p.Silindi);
             var toplamYorum = await _context.Yorumlar.CountAsync(y => y.KullaniciId == id && !y.Silindi);
@@ -117,7 +146,8 @@ namespace Saga.Server.Controllers
                 ToplamListe = toplamListe,
                 TakipEdenSayisi = takipEdenSayisi,
                 TakipEdilenSayisi = takipEdilenSayisi,
-                TakipEdiyorMu = takipEdiyorMu
+                TakipEdiyorMu = takipEdiyorMu,
+                ProfilGizli = profilGizli
             };
 
             return Ok(profil);
@@ -232,6 +262,19 @@ namespace Saga.Server.Controllers
 
                     // NOT: Aktivite kaydı artık veritabanı trigger'ı (trg_akt_takip) tarafından yapılıyor.
                     // Çifte kayıt sorununu önlemek için CreateTakipAktivite çağrısı kaldırıldı.
+
+                    // 🔔 Kullanıcı ayarlarına göre bildirim oluştur
+                    var takipEden = await _context.Kullanicilar.FindAsync(kullaniciId);
+                    await _bildirimService.BildirimOlusturAsync(new Bildirim
+                    {
+                        AliciId = id,
+                        GonderenId = kullaniciId,
+                        Tip = "yeni_takipci",
+                        Baslik = "Yeni Takipçi",
+                        Mesaj = $"{takipEden?.KullaniciAdi ?? "Birisi"} seni takip etmeye başladı",
+                        LinkUrl = $"/kullanici/{takipEden?.KullaniciAdi}",
+                        OlusturulmaZamani = DateTime.UtcNow
+                    });
 
                     return Ok(new { message = "Kullanıcı takip edildi", takipEdiyor = true });
                 }

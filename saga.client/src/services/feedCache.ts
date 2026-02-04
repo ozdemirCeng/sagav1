@@ -29,7 +29,7 @@ export const getFeedCache = (tab: string, userId?: string): CachedFeed | null =>
   const key = getCacheKey(tab, userId);
   const cached = feedCache.get(key);
   if (cached && isCacheValid(cached.timestamp)) {
-    console.log(`📦 Feed cache hit: ${key}`);
+    if (import.meta.env.DEV) console.log(`📦 Feed cache hit: ${key}`);
     return cached;
   }
   return null;

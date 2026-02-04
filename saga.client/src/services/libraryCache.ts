@@ -34,7 +34,7 @@ const isCacheValid = (timestamp: number, ttl: number = CACHE_TTL): boolean => {
 export const getKutuphaneCache = (userId: string): KutuphaneDurumu[] | null => {
   const cached = kutuphaneCache.get(userId);
   if (cached && isCacheValid(cached.timestamp)) {
-    console.log(`📦 Kutuphane cache hit: ${userId}`);
+    if (import.meta.env.DEV) console.log(`📦 Kutuphane cache hit: ${userId}`);
     return cached.data;
   }
   return null;
@@ -52,7 +52,7 @@ export const invalidateKutuphaneCache = (userId: string): void => {
 export const getListelerCache = (userId: string): Liste[] | null => {
   const cached = listelerCache.get(userId);
   if (cached && isCacheValid(cached.timestamp)) {
-    console.log(`📦 Listeler cache hit: ${userId}`);
+    if (import.meta.env.DEV) console.log(`📦 Listeler cache hit: ${userId}`);
     return cached.data;
   }
   return null;
@@ -80,7 +80,7 @@ export const updateListelerCache = (userId: string, updater: (data: Liste[]) => 
 export const getTakipciSayisiCache = (userId: string): number | null => {
   const cached = takipciSayisiCache.get(userId);
   if (cached && isCacheValid(cached.timestamp)) {
-    console.log(`📦 Takipci sayisi cache hit: ${userId}`);
+    if (import.meta.env.DEV) console.log(`📦 Takipci sayisi cache hit: ${userId}`);
     return cached.count;
   }
   return null;

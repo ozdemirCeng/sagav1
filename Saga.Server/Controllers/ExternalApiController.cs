@@ -4,6 +4,7 @@ using Saga.Server.Services;
 using Saga.Server.DTOs;
 using Saga.Server.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.RateLimiting;
 using Saga.Server.Models;
 
 namespace Saga.Server.Controllers
@@ -14,17 +15,20 @@ namespace Saga.Server.Controllers
     {
         private readonly ITmdbService _tmdbService;
         private readonly IGoogleBooksService _googleBooksService;
+        private readonly IOpenLibraryService _openLibraryService;
         private readonly ILogger<ExternalApiController> _logger;
         private readonly SagaDbContext _context;
 
         public ExternalApiController(
             ITmdbService tmdbService,
             IGoogleBooksService googleBooksService,
+            IOpenLibraryService openLibraryService,
             ILogger<ExternalApiController> logger,
             SagaDbContext context)
         {
             _tmdbService = tmdbService;
             _googleBooksService = googleBooksService;
+            _openLibraryService = openLibraryService;
             _logger = logger;
             _context = context;
         }
@@ -137,6 +141,7 @@ namespace Saga.Server.Controllers
         // GET: api/externalapi/tmdb/popular
         [HttpGet("tmdb/popular")]
         [AllowAnonymous]
+        [ResponseCache(Duration = 600, VaryByQueryKeys = new[] { "sayfa" })]
         public async Task<ActionResult<List<TmdbFilmDto>>> GetPopularTmdbFilms([FromQuery] int sayfa = 1)
         {
             var films = await _tmdbService.GetPopularFilmsAsync(sayfa);
@@ -147,6 +152,7 @@ namespace Saga.Server.Controllers
         // GET: api/externalapi/tmdb/popular-tv
         [HttpGet("tmdb/popular-tv")]
         [AllowAnonymous]
+        [ResponseCache(Duration = 600, VaryByQueryKeys = new[] { "sayfa" })]
         public async Task<ActionResult<List<TmdbFilmDto>>> GetPopularTmdbTvShows([FromQuery] int sayfa = 1)
         {
             var shows = await _tmdbService.GetPopularTvShowsAsync(sayfa);
@@ -197,12 +203,45 @@ namespace Saga.Server.Controllers
         // GET: api/externalapi/tmdb/trending (Trendler)
         [HttpGet("tmdb/trending")]
         [AllowAnonymous]
+        [ResponseCache(Duration = 600, VaryByQueryKeys = new[] { "mediaType", "timeWindow", "sayfa" })]
         public async Task<ActionResult<List<TmdbFilmDto>>> GetTrendingTmdb(
             [FromQuery] string mediaType = "all", 
             [FromQuery] string timeWindow = "week",
             [FromQuery] int sayfa = 1)
         {
             var results = await _tmdbService.GetTrendingAsync(mediaType, timeWindow, sayfa);
+            await EnrichWithSagaRatingsAsync(results);
+            return Ok(results);
+        }
+
+        // GET: api/externalapi/tmdb/discover/movie (Film Keşfet)
+        [HttpGet("tmdb/discover/movie")]
+        [AllowAnonymous]
+        public async Task<ActionResult<List<TmdbFilmDto>>> DiscoverTmdbFilms(
+            [FromQuery] int sayfa = 1,
+            [FromQuery] string? sortBy = "popularity.desc",
+            [FromQuery] int? minYear = null,
+            [FromQuery] int? maxYear = null,
+            [FromQuery] double? minRating = null,
+            [FromQuery] string? withGenres = null)
+        {
+            var results = await _tmdbService.DiscoverFilmsAsync(sayfa, sortBy, minYear, maxYear, minRating, withGenres);
+            await EnrichWithSagaRatingsAsync(results);
+            return Ok(results);
+        }
+
+        // GET: api/externalapi/tmdb/discover/tv (Dizi Keşfet)
+        [HttpGet("tmdb/discover/tv")]
+        [AllowAnonymous]
+        public async Task<ActionResult<List<TmdbFilmDto>>> DiscoverTmdbTvShows(
+            [FromQuery] int sayfa = 1,
+            [FromQuery] string? sortBy = "popularity.desc",
+            [FromQuery] int? minYear = null,
+            [FromQuery] int? maxYear = null,
+            [FromQuery] double? minRating = null,
+            [FromQuery] string? withGenres = null)
+        {
+            var results = await _tmdbService.DiscoverTvShowsAsync(sayfa, sortBy, minYear, maxYear, minRating, withGenres);
             await EnrichWithSagaRatingsAsync(results);
             return Ok(results);
         }
@@ -313,6 +352,89 @@ namespace Saga.Server.Controllers
             return Ok(result);
         }
 
+        // GET: api/externalapi/books/search-combined?q={query}
+        [HttpGet("books/search-combined")]
+        [AllowAnonymous]
+        public async Task<ActionResult<GoogleBooksSearchResult>> SearchBooksCombined(
+            [FromQuery] string q,
+            [FromQuery] int baslangic = 0,
+            [FromQuery] int limit = 40,
+            [FromQuery] string? orderBy = null,
+            [FromQuery] string? langRestrict = null,
+            [FromQuery] string? filter = null)
+        {
+            if (string.IsNullOrWhiteSpace(q))
+            {
+                return BadRequest(new { message = "Arama terimi boş olamaz." });
+            }
+
+            var googleTask = _googleBooksService.SearchBooksAsync(q, baslangic, limit, orderBy, langRestrict, filter);
+            var openTask = _openLibraryService.SearchBooksAsync(q, page: Math.Max(1, baslangic / Math.Max(limit, 1) + 1), limit: limit);
+
+            await Task.WhenAll(googleTask, openTask);
+
+            var google = googleTask.Result;
+            var open = openTask.Result;
+
+            var openMapped = open.Items.Select(b => new GoogleBookDto
+            {
+                Id = $"ol:{b.Id}",
+                Baslik = b.Baslik,
+                Yazarlar = b.Yazarlar,
+                Aciklama = b.Aciklama,
+                YayinTarihi = b.YayinTarihi,
+                PosterUrl = b.PosterUrl,
+                Dil = b.Dil,
+                SayfaSayisi = b.SayfaSayisi,
+                Kategoriler = b.Kategoriler,
+                Yayinevi = b.Yayinevi,
+                ISBN = b.ISBN,
+                OkumaLinki = b.OkumaLinki,
+                Kaynak = "openlibrary"
+            })
+            .Where(b => string.IsNullOrWhiteSpace(langRestrict) || string.Equals(b.Dil, langRestrict, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+            // Basit dedup: başlık + ilk yazar
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var merged = new List<GoogleBookDto>();
+
+            foreach (var g in google.Items)
+            {
+                var key = $"{g.Baslik}|{g.Yazarlar?.FirstOrDefault() ?? ""}";
+                if (seen.Add(key)) merged.Add(g);
+            }
+
+            foreach (var o in openMapped)
+            {
+                var key = $"{o.Baslik}|{o.Yazarlar?.FirstOrDefault() ?? ""}";
+                if (seen.Add(key)) merged.Add(o);
+            }
+
+            return Ok(new GoogleBooksSearchResult
+            {
+                Items = merged,
+                TotalItems = google.TotalItems + open.TotalItems
+            });
+        }
+
+        // GET: api/externalapi/openlibrary/search?q={query}
+        [HttpGet("openlibrary/search")]
+        [AllowAnonymous]
+        public async Task<ActionResult<OpenLibrarySearchResult>> SearchOpenLibrary(
+            [FromQuery] string q,
+            [FromQuery] int page = 1,
+            [FromQuery] int limit = 40)
+        {
+            if (string.IsNullOrWhiteSpace(q))
+            {
+                return BadRequest(new { message = "Arama terimi boş olamaz." });
+            }
+
+            var result = await _openLibraryService.SearchBooksAsync(q, page, limit);
+            return Ok(result);
+        }
+
         // GET: api/externalapi/books/{id}
         [HttpGet("books/{id}")]
         [AllowAnonymous]
@@ -325,6 +447,49 @@ namespace Saga.Server.Controllers
             }
 
             return Ok(book);
+        }
+
+        // POST: api/externalapi/openlibrary/import/{olid}
+        [HttpPost("openlibrary/import/{olid}")]
+        [AllowAnonymous]
+        public async Task<ActionResult<IcerikDetailDto>> ImportOpenLibraryBook(string olid)
+        {
+            try
+            {
+                var icerik = await _openLibraryService.ImportBookAsync(olid);
+                if (icerik == null)
+                {
+                    return BadRequest(new { message = "Kitap import edilemedi." });
+                }
+
+                var response = new IcerikDetailDto
+                {
+                    Id = icerik.Id,
+                    HariciId = icerik.HariciId,
+                    ApiKaynagi = icerik.ApiKaynagi.ToString(),
+                    Tur = icerik.Tur.ToString(),
+                    Baslik = icerik.Baslik,
+                    Aciklama = icerik.Aciklama,
+                    PosterUrl = icerik.PosterUrl,
+                    YayinTarihi = icerik.YayinTarihi,
+                    OrtalamaPuan = icerik.OrtalamaPuan,
+                    PuanlamaSayisi = icerik.PuanlamaSayisi,
+                    HariciPuan = icerik.HariciPuan,
+                    HariciOySayisi = icerik.HariciOySayisi,
+                    YorumSayisi = 0,
+                    ListeyeEklenmeSayisi = 0,
+                    GoruntulemeSayisi = icerik.GoruntulemeSayisi,
+                    PopulerlikSkoru = icerik.PopulerlikSkoru,
+                    OlusturulmaZamani = icerik.OlusturulmaZamani
+                };
+
+                return Ok(response);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Open Library import hatası: {Olid}", olid);
+                return StatusCode(500, new { message = "Kitap import edilirken bir hata oluştu." });
+            }
         }
 
         // POST: api/externalapi/books/import/{googleBooksId}

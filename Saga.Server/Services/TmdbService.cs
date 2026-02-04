@@ -47,8 +47,11 @@ namespace Saga.Server.Services
         {
             try
             {
-                // Film detayı + credits bilgisini tek istekle al
-                var url = BuildUrl($"/movie/{tmdbId}?append_to_response=credits");
+                // movie: prefix'ini temizle (veritabanında movie:12345 formatında olabilir)
+                var cleanId = tmdbId.StartsWith("movie:") ? tmdbId.Substring(6) : tmdbId;
+                
+                // Film detayı + credits + videos + watch providers bilgisini tek istekle al
+                var url = BuildUrl($"/movie/{cleanId}?append_to_response=credits,videos,watch/providers&include_video_language=tr,en,null");
                 var response = await _httpClient.GetAsync(url);
                 
                 if (!response.IsSuccessStatusCode)
@@ -73,8 +76,11 @@ namespace Saga.Server.Services
         {
             try
             {
-                // Dizi detayı + credits bilgisini tek istekle al
-                var url = BuildUrl($"/tv/{tmdbId}?append_to_response=credits");
+                // tv: prefix'ini temizle (veritabanında tv:12345 formatında olabilir)
+                var cleanId = tmdbId.StartsWith("tv:") ? tmdbId.Substring(3) : tmdbId;
+                
+                // Dizi detayı + credits + videos + watch providers bilgisini tek istekle al
+                var url = BuildUrl($"/tv/{cleanId}?append_to_response=credits,videos,watch/providers&include_video_language=tr,en,null");
                 var response = await _httpClient.GetAsync(url);
                 
                 if (!response.IsSuccessStatusCode)
@@ -339,6 +345,106 @@ namespace Saga.Server.Services
             }
         }
 
+        public async Task<List<TmdbFilmDto>> DiscoverFilmsAsync(int page = 1, string? sortBy = "popularity.desc", int? minYear = null, int? maxYear = null, double? minRating = null, string? withGenres = null)
+        {
+            try
+            {
+                var queryParams = new List<string>
+                {
+                    $"page={page}",
+                    $"sort_by={sortBy ?? "popularity.desc"}",
+                    "include_adult=false",
+                    "include_video=false"
+                };
+
+                if (minYear.HasValue) 
+                    queryParams.Add($"primary_release_date.gte={minYear}-01-01");
+                
+                if (maxYear.HasValue) 
+                    queryParams.Add($"primary_release_date.lte={maxYear}-12-31");
+                
+                if (minRating.HasValue) 
+                    queryParams.Add($"vote_average.gte={minRating}");
+                
+                if (!string.IsNullOrEmpty(withGenres)) 
+                    queryParams.Add($"with_genres={withGenres}");
+
+                var queryString = string.Join("&", queryParams);
+                var url = BuildUrl($"/discover/movie?{queryString}");
+                
+                // BuildUrl zaten ? veya & ekliyor, ama discover gibi karmaşık query'lerde 
+                // BuildUrl'in mantığına dikkat etmek gerek.
+                // Mevcut BuildUrl: endpoint + (? or &) + api_key...
+                // Bizim endpoint zaten ? içeriyor: "/discover/movie?page=1..."
+                // BuildUrl bunu algılayıp "&api_key=..." ekleyecek. Doğru çalışır.
+
+                var response = await _httpClient.GetAsync(url);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogWarning("TMDB discover movie hatası: {StatusCode}", response.StatusCode);
+                    return new List<TmdbFilmDto>();
+                }
+
+                var content = await response.Content.ReadAsStringAsync();
+                var data = JsonSerializer.Deserialize<JsonElement>(content);
+
+                return ParseMovieResults(data, "movie");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "TMDB film keşfet hatası");
+                return new List<TmdbFilmDto>();
+            }
+        }
+
+        public async Task<List<TmdbFilmDto>> DiscoverTvShowsAsync(int page = 1, string? sortBy = "popularity.desc", int? minYear = null, int? maxYear = null, double? minRating = null, string? withGenres = null)
+        {
+            try
+            {
+                var queryParams = new List<string>
+                {
+                    $"page={page}",
+                    $"sort_by={sortBy ?? "popularity.desc"}",
+                    "include_adult=false",
+                    "include_null_first_air_dates=false"
+                };
+
+                if (minYear.HasValue) 
+                    queryParams.Add($"first_air_date.gte={minYear}-01-01");
+                
+                if (maxYear.HasValue) 
+                    queryParams.Add($"first_air_date.lte={maxYear}-12-31");
+                
+                if (minRating.HasValue) 
+                    queryParams.Add($"vote_average.gte={minRating}");
+                
+                if (!string.IsNullOrEmpty(withGenres)) 
+                    queryParams.Add($"with_genres={withGenres}");
+
+                var queryString = string.Join("&", queryParams);
+                var url = BuildUrl($"/discover/tv?{queryString}");
+
+                var response = await _httpClient.GetAsync(url);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogWarning("TMDB discover tv hatası: {StatusCode}", response.StatusCode);
+                    return new List<TmdbFilmDto>();
+                }
+
+                var content = await response.Content.ReadAsStringAsync();
+                var data = JsonSerializer.Deserialize<JsonElement>(content);
+
+                return ParseTvResults(data);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "TMDB dizi keşfet hatası");
+                return new List<TmdbFilmDto>();
+            }
+        }
+
         public async Task<Icerik?> ImportFilmAsync(string tmdbId)
         {
             try
@@ -565,6 +671,89 @@ namespace Saga.Server.Services
                 }
             }
 
+            // Videos (Fragmanlar) - YouTube fragmanlarını parse et
+            if (movieData.TryGetProperty("videos", out var videos) && 
+                videos.TryGetProperty("results", out var videoResults))
+            {
+                dto.Videos = new List<VideoDto>();
+                foreach (var video in videoResults.EnumerateArray())
+                {
+                    var site = video.TryGetProperty("site", out var siteVal) ? siteVal.GetString() : null;
+                    var type = video.TryGetProperty("type", out var typeVal) ? typeVal.GetString() : null;
+                    
+                    // Sadece YouTube videolarını ve Trailer/Teaser türlerini al
+                    if (site?.ToLower() == "youtube" && 
+                        (type == "Trailer" || type == "Teaser"))
+                    {
+                        dto.Videos.Add(new VideoDto
+                        {
+                            Key = video.TryGetProperty("key", out var keyVal) ? keyVal.GetString() ?? "" : "",
+                            Site = site ?? "YouTube",
+                            Type = type ?? "Trailer",
+                            Name = video.TryGetProperty("name", out var nameVal) ? nameVal.GetString() : null,
+                            Official = video.TryGetProperty("official", out var officialVal) && officialVal.GetBoolean()
+                        });
+                    }
+                }
+                
+                // Resmi fragmanları öne al
+                dto.Videos = dto.Videos
+                    .OrderByDescending(v => v.Official)
+                    .ThenBy(v => v.Type == "Trailer" ? 0 : 1)
+                    .ToList();
+            }
+
+            // Watch Providers (İzleme Platformları) - Türkiye için
+            if (movieData.TryGetProperty("watch/providers", out var watchProviders) &&
+                watchProviders.TryGetProperty("results", out var providerResults))
+            {
+                dto.WatchProviders = new List<WatchProviderDto>();
+                
+                // Türkiye (TR) verileri yoksa global (US) verileri al
+                JsonElement regionData;
+                if (providerResults.TryGetProperty("TR", out regionData) ||
+                    providerResults.TryGetProperty("US", out regionData))
+                {
+                    // Abonelik ile izlenebilir (Netflix, Disney+ vb.)
+                    if (regionData.TryGetProperty("flatrate", out var flatrate))
+                    {
+                        foreach (var provider in flatrate.EnumerateArray())
+                        {
+                            dto.WatchProviders.Add(new WatchProviderDto
+                            {
+                                ProviderId = provider.TryGetProperty("provider_id", out var pid) ? pid.GetInt32() : 0,
+                                ProviderName = provider.TryGetProperty("provider_name", out var pname) ? pname.GetString() ?? "" : "",
+                                LogoUrl = provider.TryGetProperty("logo_path", out var logo) && !logo.ValueEquals("null")
+                                    ? $"https://image.tmdb.org/t/p/original{logo.GetString()}"
+                                    : null,
+                                Type = "flatrate"
+                            });
+                        }
+                    }
+                    
+                    // Kiralık
+                    if (regionData.TryGetProperty("rent", out var rent))
+                    {
+                        foreach (var provider in rent.EnumerateArray())
+                        {
+                            // Zaten eklenmişse atla
+                            var providerId = provider.TryGetProperty("provider_id", out var pid) ? pid.GetInt32() : 0;
+                            if (dto.WatchProviders.Any(p => p.ProviderId == providerId)) continue;
+                            
+                            dto.WatchProviders.Add(new WatchProviderDto
+                            {
+                                ProviderId = providerId,
+                                ProviderName = provider.TryGetProperty("provider_name", out var pname) ? pname.GetString() ?? "" : "",
+                                LogoUrl = provider.TryGetProperty("logo_path", out var logo) && !logo.ValueEquals("null")
+                                    ? $"https://image.tmdb.org/t/p/original{logo.GetString()}"
+                                    : null,
+                                Type = "rent"
+                            });
+                        }
+                    }
+                }
+            }
+
             return dto;
         }
 
@@ -656,6 +845,107 @@ namespace Saga.Server.Services
                     {
                         dto.Yonetmen = creator.TryGetProperty("name", out var creatorName) ? creatorName.GetString() : null;
                         break; // İlk yaratıcıyı al
+                    }
+                }
+            }
+
+            // Videos (Fragmanlar) - YouTube fragmanlarını parse et
+            if (tvData.TryGetProperty("videos", out var videos) && 
+                videos.TryGetProperty("results", out var videoResults))
+            {
+                dto.Videos = new List<VideoDto>();
+                foreach (var video in videoResults.EnumerateArray())
+                {
+                    var site = video.TryGetProperty("site", out var siteVal) ? siteVal.GetString() : null;
+                    var type = video.TryGetProperty("type", out var typeVal) ? typeVal.GetString() : null;
+                    
+                    // Sadece YouTube videolarını ve Trailer/Teaser türlerini al
+                    if (site?.ToLower() == "youtube" && 
+                        (type == "Trailer" || type == "Teaser"))
+                    {
+                        dto.Videos.Add(new VideoDto
+                        {
+                            Key = video.TryGetProperty("key", out var keyVal) ? keyVal.GetString() ?? "" : "",
+                            Site = site ?? "YouTube",
+                            Type = type ?? "Trailer",
+                            Name = video.TryGetProperty("name", out var nameVal) ? nameVal.GetString() : null,
+                            Official = video.TryGetProperty("official", out var officialVal) && officialVal.GetBoolean()
+                        });
+                    }
+                }
+
+                // Eğer Trailer/Teaser yoksa, YouTube videolarından herhangi birini al
+                if (dto.Videos.Count == 0)
+                {
+                    foreach (var video in videoResults.EnumerateArray())
+                    {
+                        var site = video.TryGetProperty("site", out var siteVal) ? siteVal.GetString() : null;
+                        if (site?.ToLower() != "youtube") continue;
+
+                        dto.Videos.Add(new VideoDto
+                        {
+                            Key = video.TryGetProperty("key", out var keyVal) ? keyVal.GetString() ?? "" : "",
+                            Site = site ?? "YouTube",
+                            Type = video.TryGetProperty("type", out var typeVal) ? typeVal.GetString() ?? "Video" : "Video",
+                            Name = video.TryGetProperty("name", out var nameVal) ? nameVal.GetString() : null,
+                            Official = video.TryGetProperty("official", out var officialVal) && officialVal.GetBoolean()
+                        });
+                    }
+                }
+                
+                // Resmi fragmanları öne al
+                dto.Videos = dto.Videos
+                    .OrderByDescending(v => v.Official)
+                    .ThenBy(v => v.Type == "Trailer" ? 0 : 1)
+                    .ToList();
+            }
+
+            // Watch Providers (İzleme Platformları) - Türkiye için
+            if (tvData.TryGetProperty("watch/providers", out var watchProviders) &&
+                watchProviders.TryGetProperty("results", out var providerResults))
+            {
+                dto.WatchProviders = new List<WatchProviderDto>();
+                
+                // Türkiye (TR) verileri yoksa global (US) verileri al
+                JsonElement regionData;
+                if (providerResults.TryGetProperty("TR", out regionData) ||
+                    providerResults.TryGetProperty("US", out regionData))
+                {
+                    // Abonelik ile izlenebilir (Netflix, Disney+ vb.)
+                    if (regionData.TryGetProperty("flatrate", out var flatrate))
+                    {
+                        foreach (var provider in flatrate.EnumerateArray())
+                        {
+                            dto.WatchProviders.Add(new WatchProviderDto
+                            {
+                                ProviderId = provider.TryGetProperty("provider_id", out var pid) ? pid.GetInt32() : 0,
+                                ProviderName = provider.TryGetProperty("provider_name", out var pname) ? pname.GetString() ?? "" : "",
+                                LogoUrl = provider.TryGetProperty("logo_path", out var logo) && !logo.ValueEquals("null")
+                                    ? $"https://image.tmdb.org/t/p/original{logo.GetString()}"
+                                    : null,
+                                Type = "flatrate"
+                            });
+                        }
+                    }
+                    
+                    // Kiralık
+                    if (regionData.TryGetProperty("rent", out var rent))
+                    {
+                        foreach (var provider in rent.EnumerateArray())
+                        {
+                            var providerId = provider.TryGetProperty("provider_id", out var pid) ? pid.GetInt32() : 0;
+                            if (dto.WatchProviders.Any(p => p.ProviderId == providerId)) continue;
+                            
+                            dto.WatchProviders.Add(new WatchProviderDto
+                            {
+                                ProviderId = providerId,
+                                ProviderName = provider.TryGetProperty("provider_name", out var pname) ? pname.GetString() ?? "" : "",
+                                LogoUrl = provider.TryGetProperty("logo_path", out var logo) && !logo.ValueEquals("null")
+                                    ? $"https://image.tmdb.org/t/p/original{logo.GetString()}"
+                                    : null,
+                                Type = "rent"
+                            });
+                        }
                     }
                 }
             }

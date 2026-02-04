@@ -46,7 +46,7 @@ const isCacheValid = (timestamp: number, ttl: number = CACHE_TTL): boolean => {
 export const getProfileCache = (kullaniciAdi: string): any | null => {
   const cached = profileCache.get(kullaniciAdi);
   if (cached && isCacheValid(cached.timestamp)) {
-    console.log(`📦 Profile cache hit: ${kullaniciAdi}`);
+    if (import.meta.env.DEV) console.log(`📦 Profile cache hit: ${kullaniciAdi}`);
     return cached.data;
   }
   return null;
@@ -64,7 +64,7 @@ export const invalidateProfileCache = (kullaniciAdi: string): void => {
 export const getFollowDataCache = (profilId: string): CachedFollowData | null => {
   const cached = followDataCache.get(profilId);
   if (cached && isCacheValid(cached.timestamp, FOLLOW_CACHE_TTL)) {
-    console.log(`📦 Follow data cache hit: ${profilId}`);
+    if (import.meta.env.DEV) console.log(`📦 Follow data cache hit: ${profilId}`);
     return cached;
   }
   return null;
@@ -82,7 +82,7 @@ export const invalidateFollowDataCache = (profilId: string): void => {
 export const getActivitiesCache = (profilId: string): any[] | null => {
   const cached = activitiesCache.get(profilId);
   if (cached && isCacheValid(cached.timestamp)) {
-    console.log(`📦 Activities cache hit: ${profilId}`);
+    if (import.meta.env.DEV) console.log(`📦 Activities cache hit: ${profilId}`);
     return cached.data;
   }
   return null;
@@ -96,7 +96,7 @@ export const setActivitiesCache = (profilId: string, data: any[]): void => {
 export const getLibraryCache = (profilId: string): any[] | null => {
   const cached = libraryCache.get(profilId);
   if (cached && isCacheValid(cached.timestamp)) {
-    console.log(`📦 Library cache hit: ${profilId}`);
+    if (import.meta.env.DEV) console.log(`📦 Library cache hit: ${profilId}`);
     return cached.data;
   }
   return null;
@@ -110,7 +110,7 @@ export const setLibraryCache = (profilId: string, data: any[]): void => {
 export const getListsCache = (profilId: string): any[] | null => {
   const cached = listsCache.get(profilId);
   if (cached && isCacheValid(cached.timestamp)) {
-    console.log(`📦 Lists cache hit: ${profilId}`);
+    if (import.meta.env.DEV) console.log(`📦 Lists cache hit: ${profilId}`);
     return cached.data;
   }
   return null;
@@ -125,7 +125,7 @@ let _myFollowingCache: { ids: Set<string>; timestamp: number } | null = null;
 
 export const getMyFollowingCache = (): Set<string> | null => {
   if (_myFollowingCache && isCacheValid(_myFollowingCache.timestamp, FOLLOW_CACHE_TTL)) {
-    console.log(`📦 My following cache hit`);
+    if (import.meta.env.DEV) console.log(`📦 My following cache hit`);
     return _myFollowingCache.ids;
   }
   return null;
@@ -158,7 +158,7 @@ export const clearAllProfileCache = (): void => {
   libraryCache.clear();
   listsCache.clear();
   _myFollowingCache = null;
-  console.log('🗑️ All profile cache cleared');
+  if (import.meta.env.DEV) console.log('🗑️ All profile cache cleared');
 };
 
 // Belirli bir profil için tüm cache'i temizle
@@ -170,5 +170,5 @@ export const clearProfileAllData = (kullaniciAdi: string, profilId?: string): vo
     libraryCache.delete(profilId);
     listsCache.delete(profilId);
   }
-  console.log(`🗑️ Profile cache cleared: ${kullaniciAdi}`);
+  if (import.meta.env.DEV) console.log(`🗑️ Profile cache cleared: ${kullaniciAdi}`);
 };

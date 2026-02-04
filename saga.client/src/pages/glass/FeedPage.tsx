@@ -659,7 +659,7 @@ export function FeedActivityCard({ aktivite, isLoggedIn, index, currentUserName,
     
     setIsDeleting(true);
     try {
-      await aktiviteApi.aktiviteSil(aktivite.id);
+      await aktiviteApi.deleteAktivite(aktivite.id);
       setShowMenu(false);
       if (onDelete) onDelete(aktivite.id);
     } catch (error) {
@@ -1368,6 +1368,9 @@ export default function FeedPage() {
 
   // Infinite scroll with IntersectionObserver
   useEffect(() => {
+    const currentRef = loadMoreRef.current;
+    if (!currentRef) return;
+
     const observer = new IntersectionObserver(
       (entries) => {
         const first = entries[0];
@@ -1383,17 +1386,11 @@ export default function FeedPage() {
       }
     );
 
-    const currentRef = loadMoreRef.current;
-    if (currentRef) {
-      observer.observe(currentRef);
-    }
+    observer.observe(currentRef);
 
     return () => {
-      if (currentRef) {
-        observer.unobserve(currentRef);
-      }
+      observer.disconnect(); // disconnect tüm observer'ı temizler
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sayfa, toplamSayfa, loadingMore, allLoaded, fetchAktiviteler]);
 
   const handleRefresh = async () => {

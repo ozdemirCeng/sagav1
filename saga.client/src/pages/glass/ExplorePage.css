@@ -156,6 +156,120 @@
 }
 
 /* ========================================
+   AI SEARCH BUTTON & RESULTS
+======================================== */
+.ai-search-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 18px;
+  background: linear-gradient(135deg, rgba(212, 168, 83, 0.18), rgba(212, 168, 83, 0.08));
+  border: 1px solid var(--gold-dim);
+  border-radius: 12px;
+  color: var(--gold-light);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  white-space: nowrap;
+}
+
+.ai-search-btn:hover {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+
+.ai-search-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.ai-search-btn.loading {
+  box-shadow: 0 0 20px rgba(212, 168, 83, 0.2);
+}
+
+.ai-result-section {
+  background: var(--void-surface);
+  border: 1px solid var(--void-border);
+  border-radius: 16px;
+  padding: 18px;
+  box-shadow: var(--shadow-lg);
+}
+
+.ai-loading,
+.ai-error {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+}
+
+.ai-error {
+  color: #f08a5d;
+}
+
+.ai-answer {
+  margin-top: 8px;
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+.ai-match-grid {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.ai-match-card {
+  background: var(--void-elevated);
+  border: 1px solid var(--void-border);
+  border-radius: 12px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.ai-match-card:hover {
+  border-color: var(--gold-dim);
+  transform: translateY(-2px);
+}
+
+.ai-match-card img {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  display: block;
+}
+
+.ai-match-placeholder {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--gold);
+  background: var(--void-light);
+}
+
+.ai-match-info {
+  padding: 10px 12px 12px;
+}
+
+.ai-match-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.ai-match-meta {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+/* ========================================
    FILTER SIDEBAR (Right Side Panel)
 ======================================== */
 .filter-sidebar-overlay {
@@ -352,6 +466,7 @@
 .search-container {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
   margin-bottom: 20px;
 }

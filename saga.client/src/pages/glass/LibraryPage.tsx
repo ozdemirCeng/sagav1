@@ -200,7 +200,7 @@ export default function LibraryPage() {
     }
   };
 
-  // İstatistikler
+  // İstatistikler - 🔧 FIX: Büyük/küçük harf duyarsız karşılaştırma
   const stats = {
     total: kutuphane.length,
     watching: kutuphane.filter((i) => 
@@ -212,9 +212,9 @@ export default function LibraryPage() {
     planned: kutuphane.filter((i) => 
       i.durum === "izlenecek" || i.durum === "okunacak" || i.durum === "beklemede"
     ).length,
-    film: kutuphane.filter((i) => (i.tur || i.icerikTur) === "film").length,
-    dizi: kutuphane.filter((i) => (i.tur || i.icerikTur) === "dizi").length,
-    kitap: kutuphane.filter((i) => (i.tur || i.icerikTur) === "kitap").length,
+    film: kutuphane.filter((i) => (i.tur || i.icerikTur || "").toLowerCase() === "film").length,
+    dizi: kutuphane.filter((i) => (i.tur || i.icerikTur || "").toLowerCase() === "dizi").length,
+    kitap: kutuphane.filter((i) => (i.tur || i.icerikTur || "").toLowerCase() === "kitap").length,
   };
 
   // Filtreleme
@@ -233,10 +233,10 @@ export default function LibraryPage() {
       return false;
     }
 
-    // Type filter
+    // Type filter - 🔧 FIX: Büyük/küçük harf duyarsız karşılaştırma
     if (filterType !== "tumu") {
-      const itemType = item.tur || item.icerikTur;
-      if (itemType !== filterType) return false;
+      const itemType = (item.tur || item.icerikTur || "").toLowerCase();
+      if (itemType !== filterType.toLowerCase()) return false;
     }
 
     return true;
@@ -292,7 +292,7 @@ export default function LibraryPage() {
           />
         </div>
         <div className="library-profile-info">
-          <h2 className="library-profile-name">{user?.kullaniciAdi}</h2>
+          <h2 className="library-profile-name">{user?.ad || user?.goruntulemeAdi || user?.kullaniciAdi}</h2>
           <span className="library-profile-username">@{user?.kullaniciAdi}</span>
           <div className="library-profile-stats">
             <div className="library-stat-item">

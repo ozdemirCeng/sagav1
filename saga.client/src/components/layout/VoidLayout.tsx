@@ -16,6 +16,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/kutuphane': 'Kütüphanem',
   '/bildirimler': 'Bildirimler',
   '/ayarlar': 'Ayarlar',
+  '/ozet': 'Yıllık Özet',
 };
 
 function getPageTitle(pathname: string): string {
@@ -27,7 +28,7 @@ function getPageTitle(pathname: string): string {
 }
 
 function shouldShowBack(pathname: string): boolean {
-  const backPaths = ['/profil/', '/ayarlar', '/liste/', '/bildirimler', '/icerik/'];
+  const backPaths = ['/profil/', '/ayarlar', '/liste/', '/bildirimler', '/icerik/', '/ozet'];
   return backPaths.some(path => pathname.includes(path));
 }
 

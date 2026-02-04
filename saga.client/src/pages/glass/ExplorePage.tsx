@@ -6,9 +6,9 @@ import {
   Swords, Ghost, Laugh, Rocket, Wand2, SlidersHorizontal, Layers, User,
   TrendingUp, Clock, Calendar, ChevronDown, ChevronUp, Globe
 } from 'lucide-react';
-import { externalApi, icerikApi, listeApi, kullaniciApi, kutuphaneApi } from '../../services/api';
+import { externalApi, icerikApi, listeApi, kullaniciApi, kutuphaneApi, aiApi } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
-import type { TmdbFilm, GoogleBook, PopulerListe, OnerilenKullanici } from '../../services/api';
+import type { TmdbFilm, GoogleBook, PopulerListe, OnerilenKullanici, AiMatch } from '../../services/api';
 import bookQueriesConfig from '../../config/bookQueries.json';
 import { ContentCard, ContentGrid, tmdbToCardData, bookToCardData, normalizeContentType } from '../../components/ui';
 import {
@@ -48,15 +48,21 @@ const applySagaRatingUpdate = (detail?: SagaRatingUpdateDetail) => {
   });
 };
 
-let sagaRatingCacheListener: ((event: Event) => void) | null = null;
-
-if (typeof window !== 'undefined' && !sagaRatingCacheListener) {
-  sagaRatingCacheListener = (event: Event) => {
+// Global event listener - tek sefer eklenir
+const setupRatingListener = () => {
+  if (typeof window === 'undefined') return;
+  
+  const handler = (event: Event) => {
     const custom = event as CustomEvent<SagaRatingUpdateDetail>;
     applySagaRatingUpdate(custom.detail);
   };
-  window.addEventListener('saga-rating-updated', sagaRatingCacheListener as EventListener);
-}
+  
+  // Önceki listener varsa kaldır (HMR için)
+  window.removeEventListener('saga-rating-updated', handler);
+  window.addEventListener('saga-rating-updated', handler);
+};
+
+setupRatingListener();
 
 // ============================================
 // MATCH PERCENTAGE ALGORITHM
@@ -67,6 +73,8 @@ interface UserPreferences {
   avgRating: number; // kullanıcının ortalama puanı
   prefersTv: boolean; // dizi mi film mi tercih ediyor
   recentYearBias: number; // yeni içerik tercihi (0-1)
+  preferredYear?: number; // tercih edilen ortalama yıl
+  yearStdDev?: number; // yıl dağılımı (standart sapma)
 }
 
 // Kullanıcının tercihlerine göre eşleşme yüzdesi hesapla
@@ -75,52 +83,63 @@ function calculateMatchPercentage(
   userPrefs: UserPreferences | null,
   allResults: TmdbFilm[]
 ): number {
+  const yearStr = (film.yayinTarihi || film.releaseDate || '').split('-')[0];
+  const year = parseInt(yearStr || '0', 10) || 0;
+
   // Kullanıcı giriş yapmamış veya tercih verisi yoksa basit formül
   if (!userPrefs || userPrefs.favoriteGenres.size === 0) {
     const rating = film.puan || film.voteAverage || 0;
     const sagaRating = film.sagaOrtalamaPuan || 0;
+    const voteCount = film.oySayisi || film.voteCount || 0;
+    const popularityBoost = Math.min(10, Math.log10(voteCount + 1) * 4);
     // Temel formül: TMDB puanı + SAGA puanı + popülerlik
-    const baseScore = (rating * 5) + (sagaRating * 5) + 40;
+    const baseScore = (rating * 5) + (sagaRating * 5) + 40 + popularityBoost;
     return Math.min(99, Math.max(50, Math.round(baseScore)));
   }
 
-  let score = 50; // Başlangıç puanı
+  let score = 35; // Başlangıç puanı
 
   // 1. Tür eşleşmesi (max +30 puan)
   const filmGenres = film.turIds || [];
   let genreScore = 0;
-  let maxGenreWeight = 0;
+  let totalGenreWeight = 0;
   userPrefs.favoriteGenres.forEach((weight) => {
-    if (weight > maxGenreWeight) maxGenreWeight = weight;
+    totalGenreWeight += weight;
   });
-  
-  filmGenres.forEach(genreId => {
-    const weight = userPrefs.favoriteGenres.get(genreId) || 0;
-    if (weight > 0 && maxGenreWeight > 0) {
-      genreScore += (weight / maxGenreWeight) * 15; // Her eşleşen tür için max 15 puan
-    }
-  });
-  score += Math.min(30, genreScore);
 
-  // 2. Puan kalitesi (max +20 puan)
+  if (filmGenres.length > 0 && totalGenreWeight > 0) {
+    let matchedWeight = 0;
+    filmGenres.forEach((genreId) => {
+      matchedWeight += userPrefs.favoriteGenres.get(genreId) || 0;
+    });
+    genreScore = (matchedWeight / totalGenreWeight) * 38;
+  }
+  score += Math.min(38, genreScore);
+
+  // 2. Puan kalitesi + güven (max +25 puan)
   const rating = film.puan || film.voteAverage || 0;
   const sagaRating = film.sagaOrtalamaPuan || 0;
   const combinedRating = sagaRating > 0 ? (rating * 0.4 + sagaRating * 0.6) : rating;
-  score += (combinedRating / 10) * 20;
+  const voteCount = film.oySayisi || film.voteCount || 0;
+  const ratingConfidence = Math.min(1, Math.log10(voteCount + 1) / 3); // 0-1
+  score += (combinedRating / 10) * 20 * (0.6 + 0.4 * ratingConfidence);
 
-  // 3. Media type tercihi (max +10 puan)
+  // 3. Media type tercihi (max +7 puan)
   const isTV = film.mediaType === 'tv';
   if ((userPrefs.prefersTv && isTV) || (!userPrefs.prefersTv && !isTV)) {
-    score += 10;
+    score += 7;
   }
 
-  // 4. Yenilik faktörü (max +10 puan)
-  const year = parseInt((film.yayinTarihi || film.releaseDate || '0').split('-')[0]);
-  const currentYear = new Date().getFullYear();
-  if (year >= currentYear - 2) {
-    score += 10 * userPrefs.recentYearBias;
-  } else if (year >= currentYear - 5) {
-    score += 5 * userPrefs.recentYearBias;
+  // 4. Yıl uyumu (max +15 puan)
+  if (year > 0 && userPrefs.preferredYear) {
+    const sigma = Math.max(3, userPrefs.yearStdDev || 8);
+    const diff = year - userPrefs.preferredYear;
+    const gaussian = Math.exp(-(diff * diff) / (2 * sigma * sigma)); // 0-1
+    score += gaussian * 12 + (userPrefs.recentYearBias * 3);
+  } else if (year > 0) {
+    const currentYear = new Date().getFullYear();
+    if (year >= currentYear - 2) score += 8 * userPrefs.recentYearBias;
+    else if (year >= currentYear - 5) score += 4 * userPrefs.recentYearBias;
   }
 
   // 5. Göreceli popülerlik (max +10 puan)
@@ -128,6 +147,11 @@ function calculateMatchPercentage(
   const maxRating = Math.max(...allResults.map(f => f.puan || f.voteAverage || 0));
   if (maxRating > 0) {
     score += (rating / maxRating) * 10;
+  }
+
+  // 6. Düşük tür bilgisi cezası
+  if (filmGenres.length === 0) {
+    score -= 4;
   }
 
   return Math.min(99, Math.max(40, Math.round(score)));
@@ -228,6 +252,11 @@ interface FilterPanelProps {
   bookLang: string;
   bookLanguages: { value: string; label: string }[];
   onBookLangChange: (lang: string) => void;
+  bookSource: string;
+  bookSources: { value: string; label: string }[];
+  onBookSourceChange: (source: string) => void;
+  onlyReadable: boolean;
+  onOnlyReadableChange: (value: boolean) => void;
   // Ortak filtreler
   minYear: number | null;
   maxYear: number | null;
@@ -255,6 +284,11 @@ function FilterPanel({
   bookLang,
   bookLanguages,
   onBookLangChange,
+  bookSource,
+  bookSources,
+  onBookSourceChange,
+  onlyReadable,
+  onOnlyReadableChange,
   minYear,
   maxYear,
   minPuan,
@@ -290,7 +324,9 @@ function FilterPanel({
     minPuan, 
     selectedGenres.length > 0 ? selectedGenres : null,
     bookCategory !== 'all' ? bookCategory : null,
-    bookLang !== 'all' ? bookLang : null
+    bookLang !== 'all' ? bookLang : null,
+    bookSource !== 'all' ? bookSource : null,
+    onlyReadable ? 'readable' : null
   ].filter(Boolean).length;
 
   // ESC tuşu ile kapatma
@@ -606,6 +642,67 @@ function FilterPanel({
                   </button>
                 ))}
               </div>
+            </div>
+
+            {/* Kaynak Filtresi */}
+            <div style={{ 
+              background: 'rgba(255,255,255,0.03)', 
+              borderRadius: '12px', 
+              padding: '14px',
+              border: '1px solid rgba(255,255,255,0.05)'
+            }}>
+              <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <BookOpen size={12} style={{ color: '#d4a853' }} />
+                Kaynak
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                {bookSources.map((source) => (
+                  <button
+                    key={source.value}
+                    onClick={() => onBookSourceChange(source.value)}
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: '8px',
+                      border: bookSource === source.value ? '1px solid #d4a853' : '1px solid rgba(255,255,255,0.08)',
+                      background: bookSource === source.value ? 'rgba(212,168,83,0.15)' : 'transparent',
+                      color: bookSource === source.value ? '#d4a853' : 'rgba(255,255,255,0.5)',
+                      cursor: 'pointer',
+                      fontSize: '11px',
+                      fontWeight: 500
+                    }}
+                  >
+                    {source.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Okunabilir Filtresi */}
+            <div style={{ 
+              background: 'rgba(255,255,255,0.03)', 
+              borderRadius: '12px', 
+              padding: '14px',
+              border: '1px solid rgba(255,255,255,0.05)'
+            }}>
+              <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <BookOpen size={12} style={{ color: '#d4a853' }} />
+                Okunabilir
+              </div>
+              <button
+                onClick={() => onOnlyReadableChange(!onlyReadable)}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '8px',
+                  border: onlyReadable ? '1px solid #d4a853' : '1px solid rgba(255,255,255,0.08)',
+                  background: onlyReadable ? 'rgba(212,168,83,0.15)' : 'transparent',
+                  color: onlyReadable ? '#d4a853' : 'rgba(255,255,255,0.5)',
+                  cursor: 'pointer',
+                  fontSize: '11px',
+                  fontWeight: 500
+                }}
+              >
+                {onlyReadable ? 'Sadece okunabilir' : 'Hepsi'}
+              </button>
             </div>
           </>
         )}
@@ -970,6 +1067,54 @@ function parseYearFromDate(dateStr: string | undefined): number {
   return 0;
 }
 
+function applyBookSourceFilters(
+  books: GoogleBook[],
+  source: string,
+  onlyReadable: boolean
+): GoogleBook[] {
+  let filtered = books;
+
+  if (source !== 'all') {
+    filtered = filtered.filter((book) => {
+      const inferredSource = book.kaynak || (book.id?.startsWith('ol:') ? 'openlibrary' : 'google_books');
+      return inferredSource === source;
+    });
+  }
+
+  if (onlyReadable) {
+    filtered = filtered.filter((book) => !!book.okumaLinki);
+  }
+
+  return filtered;
+}
+
+function getBookSource(book: GoogleBook): 'google_books' | 'openlibrary' {
+  return (book.kaynak as 'google_books' | 'openlibrary')
+    || (book.id?.startsWith('ol:') ? 'openlibrary' : 'google_books');
+}
+
+function isBookQualityOk(book: GoogleBook): boolean {
+  const source = getBookSource(book);
+  const title = book.baslik || book.title;
+  if (!title || title.trim().length < 2) return false;
+
+  const hasCover = !!(book.posterUrl || book.thumbnail);
+  const hasAuthor = (book.yazarlar && book.yazarlar.length > 0) || (book.authors && book.authors.length > 0);
+  const rawDescription = book.aciklama || book.description || '';
+  const cleanDescription = stripHtmlTags(rawDescription);
+  const hasDescription = cleanDescription.length > 20;
+
+  if (source === 'openlibrary') {
+    // Open Library'de kapak her zaman yok; yazar/açıklama/okuma linki varsa kabul et
+    return hasAuthor || hasDescription || !!book.okumaLinki;
+  }
+
+  // Google Books için daha sıkı: kapak + başlık + (yazar veya açıklama)
+  if (!hasCover) return false;
+  if (!hasAuthor && !hasDescription) return false;
+  return true;
+}
+
 // ============================================
 // MAIN EXPLORE PAGE
 // ============================================
@@ -1023,7 +1168,35 @@ export default function ExplorePage() {
         let movieCount = 0;
         let recentCount = 0;
         let totalCount = 0;
+        let yearSum = 0;
+        let yearCount = 0;
+        const yearValues: number[] = [];
         const currentYear = new Date().getFullYear();
+
+        const normalizeGenreName = (name: string) => name.toLowerCase().replace('&', 've').replace(/\s+/g, ' ').trim();
+        const genreNameToId = new Map<string, number>();
+        [...FILM_GENRES, ...TV_GENRES, ...COMBINED_GENRES].forEach((g) => {
+          genreNameToId.set(normalizeGenreName(g.name), g.id);
+        });
+
+        const deriveGenreIds = (genres?: string[]) => {
+          if (!genres || genres.length === 0) return [] as number[];
+          const ids: number[] = [];
+          for (const genre of genres) {
+            const key = normalizeGenreName(genre);
+            const mapped = genreNameToId.get(key);
+            if (mapped) ids.push(mapped);
+          }
+          return ids;
+        };
+
+        const getStatusWeight = (status?: string) => {
+          const s = (status || '').toLowerCase();
+          if (s.includes('izlendi') || s.includes('okundu') || s.includes('tamamlandi')) return 2.0;
+          if (s.includes('izleniyor') || s.includes('okunuyor') || s.includes('devam')) return 1.5;
+          if (s.includes('izlenecek') || s.includes('okunacak') || s.includes('beklemede')) return 0.7;
+          return 1.0;
+        };
 
         for (const item of kutuphane) {
           // İçerik ID'sini kaydet (sagaIcerikId ile eşleşecek)
@@ -1058,17 +1231,50 @@ export default function ExplorePage() {
             if (updateYear >= currentYear - 1) {
               recentCount++;
             }
+
+            // Yayın yılı tercihleri
+            const publishYear = item.icerik?.yayinTarihi
+              ? parseInt(String(item.icerik.yayinTarihi).slice(0, 4), 10)
+              : 0;
+            if (publishYear > 0) {
+              yearSum += publishYear;
+              yearCount++;
+              yearValues.push(publishYear);
+            }
+
+            // Tür ağırlıkları
+            const genreIds = deriveGenreIds(item.icerik?.turler);
+            if (genreIds.length > 0) {
+              const baseWeight = getStatusWeight(item.durum);
+              const ratingBoost = item.ortalamaPuan ? Math.min(1.5, item.ortalamaPuan / 8) : 1;
+              const recencyBoost = updateYear >= currentYear - 1 ? 1.15 : 1;
+              const weight = baseWeight * ratingBoost * recencyBoost;
+              genreIds.forEach((genreId) => {
+                genreWeights.set(genreId, (genreWeights.get(genreId) || 0) + weight);
+              });
+            }
           }
         }
         
         setUserWatchedIds(watchedIds);
 
         // Tercihleri hesapla
+        let preferredYear: number | undefined;
+        let yearStdDev: number | undefined;
+        if (yearCount > 0) {
+          preferredYear = Math.round(yearSum / yearCount);
+          const mean = preferredYear;
+          const variance = yearValues.reduce((sum, y) => sum + (y - mean) * (y - mean), 0) / yearValues.length;
+          yearStdDev = Math.sqrt(variance);
+        }
+
         const prefs: UserPreferences = {
           favoriteGenres: genreWeights,
           avgRating: ratingCount > 0 ? totalRating / ratingCount : 7,
           prefersTv: tvCount > movieCount,
           recentYearBias: totalCount > 0 ? Math.min(1, recentCount / totalCount + 0.3) : 0.5,
+          preferredYear,
+          yearStdDev,
         };
 
         setUserPreferences(prefs);
@@ -1134,13 +1340,15 @@ export default function ExplorePage() {
   const initialTmdbSort = (searchParams.get('tmdbSort') as 'popular' | 'top_rated' | 'trending' | 'now_playing') || 'popular';
   const initialBookLang = searchParams.get('bookLang') || '';
   const initialBookCategory = searchParams.get('bookCategory') || 'all';
+  const initialBookSource = searchParams.get('bookSource') || 'all';
+  const initialOnlyReadable = searchParams.get('bookReadable') === '1';
   const initialMinYear = searchParams.get('minYear') ? parseInt(searchParams.get('minYear')!) : null;
   const initialMaxYear = searchParams.get('maxYear') ? parseInt(searchParams.get('maxYear')!) : null;
   const initialMinPuan = searchParams.get('minPuan') ? parseInt(searchParams.get('minPuan')!) : null;
 
   // In-memory cache'den sonuçları oku - initial değerlerden sonra tanımlanmalı
   const tmdbCacheData = getTmdbCache(initialTmdbFilter, initialTmdbSort);
-  const bookCacheData = getBookCache(initialBookCategory, initialBookLang);
+  const bookCacheData = getBookCache(initialBookCategory, initialBookLang, initialBookSource, initialOnlyReadable);
   
   // Cache'den veri geldiyse başlangıç değerlerini ayarla
   const hasCache = (tmdbCacheData !== null && tmdbCacheData.results.length > 0) || 
@@ -1155,6 +1363,14 @@ export default function ExplorePage() {
   const [searchQuery, setSearchQuery] = useState(initialQuery);
   const previousSearchValue = useRef(searchQuery);
   const [activeTab, setActiveTab] = useState<'tmdb' | 'kitaplar'>(initialTab);
+
+  // URL'den gelen query değiştiğinde searchQuery'yi güncelle (AI yönlendirmesi için)
+  useEffect(() => {
+    const urlQuery = searchParams.get('q') || '';
+    if (urlQuery && urlQuery !== searchQuery) {
+      setSearchQuery(urlQuery);
+    }
+  }, [searchParams]);
 
   // TMDB filters
   const [tmdbFilter, setTmdbFilter] = useState<'all' | 'movie' | 'tv'>(initialTmdbFilter);
@@ -1175,6 +1391,8 @@ export default function ExplorePage() {
 
   // Kitap filters
   const [bookLang, setBookLang] = useState<string>(initialBookLang);
+  const [bookSource, setBookSource] = useState<string>(initialBookSource);
+  const [onlyReadable, setOnlyReadable] = useState<boolean>(initialOnlyReadable);
   const [bookStartIndex, setBookStartIndex] = useState(initialBookStartIndex);
   const [bookHasMore, setBookHasMore] = useState(bookCacheData?.hasMore ?? true);
   const [bookLoadingMore, setBookLoadingMore] = useState(false);
@@ -1191,6 +1409,12 @@ export default function ExplorePage() {
     { value: '', label: '🌍 Tüm Diller' },
     { value: 'tr', label: '🇹🇷 Türkçe' },
     { value: 'en', label: '🇬🇧 İngilizce' },
+  ];
+
+  const bookSources = [
+    { value: 'all', label: '🌐 Tümü' },
+    { value: 'google_books', label: 'Google Books' },
+    { value: 'openlibrary', label: 'Open Library' },
   ];
   
   // Görüntülenen kitap ID'lerini takip et (güçlü duplicate kontrolü)
@@ -1247,7 +1471,9 @@ export default function ExplorePage() {
     minYear: initialMinYear, 
     maxYear: initialMaxYear, 
     minPuan: initialMinPuan,
-    genres: [] as number[]
+    genres: [] as number[],
+    bookSource: initialBookSource,
+    onlyReadable: initialOnlyReadable
   });
   
   // Filter modal state
@@ -1264,6 +1490,24 @@ export default function ExplorePage() {
   // Data states - cache'den veya boş başlat
   const [tmdbResults, setTmdbResults] = useState<TmdbFilm[]>(tmdbCacheData?.results || []);
   const [bookResults, setBookResults] = useState<GoogleBook[]>(bookCacheData?.results || []);
+
+  // Sana Özel önerileri (skora göre sıralı)
+  const recommendedResults = useMemo(() => {
+    if (!user || tmdbResults.length === 0) return [] as TmdbFilm[];
+
+    const candidates = tmdbResults.filter((film) => {
+      if (film.sagaIcerikId && userWatchedIds.has(String(film.sagaIcerikId))) return false;
+      return true;
+    });
+
+    const scored = candidates.map((film) => ({
+      film,
+      score: calculateMatchPercentage(film, userPreferences, tmdbResults),
+    }));
+
+    scored.sort((a, b) => b.score - a.score);
+    return scored.map((s) => s.film);
+  }, [user, tmdbResults, userPreferences, userWatchedIds]);
   
   // Scroll restore flag - sadece bir kez yapılsın
   const scrollRestoredRef = useRef(false);
@@ -1320,11 +1564,13 @@ export default function ExplorePage() {
           bookHasMore, 
           bookCategory, 
           bookLang,
+          bookSource,
+          onlyReadable,
           Array.from(seenBookIds.current)
         );
       }
     };
-  }, [activeTab, tmdbResults, tmdbPage, tmdbHasMore, tmdbFilter, tmdbSort, bookResults, bookStartIndex, allQueryIndex, bookHasMore, bookCategory, bookLang]);
+  }, [activeTab, tmdbResults, tmdbPage, tmdbHasMore, tmdbFilter, tmdbSort, bookResults, bookStartIndex, allQueryIndex, bookHasMore, bookCategory, bookLang, bookSource, onlyReadable]);
 
   // Keşfet verilerini cache'den yükle
   useEffect(() => {
@@ -1339,7 +1585,16 @@ export default function ExplorePage() {
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState<string | null>(null);
 
+  // AI arama state
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiAnswer, setAiAnswer] = useState<string | null>(null);
+  const [aiMatches, setAiMatches] = useState<AiMatch[]>([]);
+  const [aiError, setAiError] = useState<string | null>(null);
+
   const resetSearchState = useCallback(() => {
+    setAiAnswer(null);
+    setAiMatches([]);
+    setAiError(null);
     setSearchStartIndex(0);
     setSearchHasMore(true);
     searchSeenIds.current.clear();
@@ -1362,6 +1617,106 @@ export default function ExplorePage() {
     setLoading(false);
   }, []);
 
+  const handleAiSearch = useCallback(async () => {
+    if (!searchQuery.trim()) return;
+
+    setAiLoading(true);
+    setAiAnswer(null);
+    setAiMatches([]);
+    setAiError(null);
+
+    try {
+      const tur = activeTab === 'kitaplar'
+        ? 'kitap'
+        : tmdbFilter === 'tv'
+          ? 'dizi'
+          : tmdbFilter === 'movie'
+            ? 'film'
+            : undefined;
+
+      // Önce AI identify dene - doğal dil tanımlarını anlar (örn: "ellerinden pençe çıkan adam")
+      try {
+        const identifyResponse = await aiApi.identify(searchQuery.trim(), tur);
+        
+        if (identifyResponse.success && identifyResponse.identifiedTitle) {
+          // AI içeriği tanıdı!
+          const identifiedTitle = identifyResponse.identifiedTitle;
+          const identifiedTur = identifyResponse.identifiedType; // film, dizi, kitap
+          
+          setAiAnswer(`🎯 "${identifiedTitle}" olarak tanımlandı. Bu isimle arama yapılıyor...`);
+          
+          // Tanımlanan ismi arama kutusuna yaz
+          setSearchQuery(identifiedTitle);
+          
+          // Tür'e göre sekmeyi değiştir
+          let targetTab: 'tmdb' | 'kitaplar' = activeTab;
+          let targetTmdbFilter: 'all' | 'movie' | 'tv' = tmdbFilter;
+          
+          if (identifiedTur === 'kitap') {
+            targetTab = 'kitaplar';
+            setActiveTab('kitaplar');
+          } else if (identifiedTur === 'dizi') {
+            targetTab = 'tmdb';
+            targetTmdbFilter = 'tv';
+            setActiveTab('tmdb');
+            setTmdbFilter('tv');
+          } else if (identifiedTur === 'film') {
+            targetTab = 'tmdb';
+            targetTmdbFilter = 'movie';
+            setActiveTab('tmdb');
+            setTmdbFilter('movie');
+          }
+          
+          // Biraz bekle, state güncellensin
+          await new Promise(resolve => setTimeout(resolve, 100));
+          
+          // TMDB veya Books'ta ara
+          if (targetTab === 'kitaplar') {
+            const langParam = bookLang || undefined;
+            const response = await externalApi.searchBooks(identifiedTitle, 0, 40, 'relevance', langParam);
+            let results = response.items || [];
+            results = results.map((book: GoogleBook) => ({
+              ...book,
+              aciklama: stripHtmlTags(book.aciklama),
+              description: stripHtmlTags(book.description),
+            }));
+            setBookResults(results);
+            setBookStartIndex(results.length);
+            setBookHasMore(response.items?.length === 40);
+            setAiAnswer(`🎯 "${identifiedTitle}" için ${results.length} kitap bulundu`);
+          } else {
+            let results: TmdbFilm[];
+            if (targetTmdbFilter === 'movie') {
+              results = await externalApi.searchTmdb(identifiedTitle);
+            } else if (targetTmdbFilter === 'tv') {
+              results = await externalApi.searchTmdbTv(identifiedTitle);
+            } else {
+              results = await externalApi.searchTmdbMulti(identifiedTitle);
+            }
+            setTmdbResults(results);
+            const turText = targetTmdbFilter === 'tv' ? 'dizi' : targetTmdbFilter === 'movie' ? 'film' : 'sonuç';
+            setAiAnswer(`🎯 "${identifiedTitle}" için ${results.length} ${turText} bulundu`);
+          }
+          
+          setAiMatches([]); // AI matches'i temizle, normal sonuçlar gösterilecek
+          return; // Başarılı, fonksiyondan çık
+        }
+      } catch (identifyErr) {
+        console.log('AI identify kullanılamadı, semantic search deneniyor...', identifyErr);
+      }
+
+      // Fallback: Semantic search / FTS arama
+      const response = await aiApi.ask(searchQuery.trim(), tur);
+      setAiAnswer(response.answer);
+      setAiMatches(response.matches || []);
+    } catch (err) {
+      console.error('AI arama hatası:', err);
+      setAiError('AI araması başarısız oldu.');
+    } finally {
+      setAiLoading(false);
+    }
+  }, [searchQuery, activeTab, tmdbFilter, bookLang]);
+
   // Filter helper - filtre uygulama (hem TMDB hem Kitaplar için)
   const applyFilters = () => {
     // Filtreler değişmediyse hiçbir şey yapma
@@ -1369,14 +1724,16 @@ export default function ExplorePage() {
       appliedFilters.minYear !== minYear ||
       appliedFilters.maxYear !== maxYear ||
       appliedFilters.minPuan !== minPuan ||
-      JSON.stringify(appliedFilters.genres) !== JSON.stringify(selectedGenres);
+      JSON.stringify(appliedFilters.genres) !== JSON.stringify(selectedGenres) ||
+      appliedFilters.bookSource !== bookSource ||
+      appliedFilters.onlyReadable !== onlyReadable;
     
     if (!filtersChanged) {
       console.log('📋 Filtreler değişmedi, işlem atlanıyor');
       return;
     }
     
-    setAppliedFilters({ minYear, maxYear, minPuan, genres: selectedGenres });
+    setAppliedFilters({ minYear, maxYear, minPuan, genres: selectedGenres, bookSource, onlyReadable });
     // TMDB için
     setTmdbPage(1);
     setTmdbResults([]);
@@ -1398,7 +1755,9 @@ export default function ExplorePage() {
     setMaxYear(null);
     setMinPuan(null);
     setSelectedGenres([]);
-    setAppliedFilters({ minYear: null, maxYear: null, minPuan: null, genres: [] });
+    setAppliedFilters({ minYear: null, maxYear: null, minPuan: null, genres: [], bookSource: 'all', onlyReadable: false });
+    setBookSource('all');
+    setOnlyReadable(false);
     // TMDB için
     setTmdbPage(1);
     setTmdbResults([]);
@@ -1421,6 +1780,10 @@ export default function ExplorePage() {
     setTmdbPage(1);
     setTmdbResults([]);
     setTmdbHasMore(true);
+    // 🔧 FIX: Medya türü değiştiğinde tür filtrelerini sıfırla
+    // Film ve Dizi farklı tür ID'lerine sahip olduğu için eski seçimler geçersiz olur
+    setSelectedGenres([]);
+    setAppliedFilters(prev => ({ ...prev, genres: [] }));
     clearTmdbCache(); // Cache temizle
   };
 
@@ -1461,6 +1824,32 @@ export default function ExplorePage() {
     clearBookCache(); // Cache temizle
   };
 
+  const handleBookSourceChange = (source: string) => {
+    if (source === bookSource) return;
+    setBookSource(source);
+    setBookStartIndex(0);
+    setAllQueryIndex(0);
+    setBookResults([]);
+    seenBookIds.current.clear();
+    lastRequestedKey.current = '';
+    setBookHasMore(true);
+    setBookDataLoaded(false);
+    clearBookCache();
+  };
+
+  const handleOnlyReadableChange = (value: boolean) => {
+    if (value === onlyReadable) return;
+    setOnlyReadable(value);
+    setBookStartIndex(0);
+    setAllQueryIndex(0);
+    setBookResults([]);
+    seenBookIds.current.clear();
+    lastRequestedKey.current = '';
+    setBookHasMore(true);
+    setBookDataLoaded(false);
+    clearBookCache();
+  };
+
   // Puan filtresi değiştiğinde - "Tümü" seçilirse hemen uygula
   const handleMinPuanChange = (puan: number | null) => {
     setMinPuan(puan);
@@ -1468,6 +1857,13 @@ export default function ExplorePage() {
     // "Tümü" (null) seçildiğinde hemen filtreyi kaldır ve verileri yeniden yükle
     if (puan === null && appliedFilters.minPuan !== null) {
       setAppliedFilters(prev => ({ ...prev, minPuan: null }));
+      
+      // 🔧 FIX: TMDB sonuçları için de state'leri sıfırla
+      setTmdbPage(1);
+      setTmdbResults([]);
+      setTmdbHasMore(true);
+      clearTmdbCache();
+      
       // Kitaplar için state'leri sıfırla
       setBookStartIndex(0);
       setAllQueryIndex(0);
@@ -1529,13 +1925,7 @@ export default function ExplorePage() {
         }));
         
         // Kalite filtresi - kapağı olmayanları çıkar
-        results = results.filter((book: GoogleBook) => {
-          const hasCover = book.posterUrl || book.thumbnail;
-          if (!hasCover) return false;
-          const title = book.baslik || book.title;
-          if (!title || title.trim().length < 2) return false;
-          return true;
-        });
+        results = results.filter(isBookQualityOk);
         
         // CLIENT-SIDE DİL FİLTRELEMESİ (arama için de)
         if (bookLang) {
@@ -1544,6 +1934,9 @@ export default function ExplorePage() {
             return bookLanguage === bookLang;
           });
         }
+
+        // Kaynak/okunabilir filtreleri
+        results = applyBookSourceFilters(results, bookSource, onlyReadable);
         
         // Yıl filtresi uygula (appliedFilters)
         // Aralıktaki kitaplar + tarihi bilinmeyenler gösterilsin, aralık dışındakiler çıkarılsın
@@ -1605,7 +1998,7 @@ export default function ExplorePage() {
     } finally {
       setLoading(false);
     }
-  }, [searchQuery, activeTab, tmdbFilter, appliedFilters.minYear, appliedFilters.maxYear, appliedFilters.minPuan, bookLang, resetSearchState]);
+  }, [searchQuery, activeTab, tmdbFilter, appliedFilters.minYear, appliedFilters.maxYear, appliedFilters.minPuan, bookLang, bookSource, onlyReadable, resetSearchState]);
 
   const handleSearchClear = useCallback(() => {
     if (!searchQuery.trim()) return;
@@ -1634,13 +2027,7 @@ export default function ExplorePage() {
       }));
       
       // Kalite filtresi
-      results = results.filter((book: GoogleBook) => {
-        const hasCover = book.posterUrl || book.thumbnail;
-        if (!hasCover) return false;
-        const title = book.baslik || book.title;
-        if (!title || title.trim().length < 2) return false;
-        return true;
-      });
+      results = results.filter(isBookQualityOk);
       
       // CLIENT-SIDE DİL FİLTRELEMESİ
       if (bookLang) {
@@ -1649,6 +2036,9 @@ export default function ExplorePage() {
           return bookLanguage === bookLang;
         });
       }
+
+      // Kaynak/okunabilir filtreleri
+      results = applyBookSourceFilters(results, bookSource, onlyReadable);
       
       // Yıl filtresi uygula (appliedFilters)
       // Aralıktaki kitaplar + tarihi bilinmeyenler gösterilsin, aralık dışındakiler çıkarılsın
@@ -1718,7 +2108,7 @@ export default function ExplorePage() {
     } finally {
       setBookLoadingMore(false);
     }
-  }, [searchQuery, searchStartIndex, searchHasMore, bookLoadingMore, bookLang, appliedFilters.minYear, appliedFilters.maxYear, appliedFilters.minPuan]);
+  }, [searchQuery, searchStartIndex, searchHasMore, bookLoadingMore, bookLang, bookSource, onlyReadable, appliedFilters.minYear, appliedFilters.maxYear, appliedFilters.minPuan]);
 
   // TMDB verileri yükle (tab, filtre, sort veya sayfa değişince)
   // Filter/sort değişince reset
@@ -1756,79 +2146,149 @@ export default function ExplorePage() {
         setTmdbLoadingMore(true);
       }
       
+      // Filtreler aktif mi? (Yıl, Puan veya Tür)
+      const hasActiveFilters = 
+        filters.minYear !== null || 
+        filters.maxYear !== null || 
+        filters.minPuan !== null || 
+        filters.genres.length > 0;
+
       try {
         let results: TmdbFilm[] = [];
         
-        if (sort === 'popular') {
+        // ===========================================
+        // 1. FİLTRELİ ARAMA (DISCOVER API)
+        // ===========================================
+        if (hasActiveFilters) {
+          console.log('🔍 Filtreli arama yapılıyor (Discover API)...');
+          
+          // Sort parametresini hazırla
+          let sortBy = 'popularity.desc'; // Varsayılan: Popüler
+          if (sort === 'top_rated') sortBy = 'vote_average.desc';
+          else if (sort === 'now_playing') sortBy = 'primary_release_date.desc';
+          // Trending için de popularity kullanıyoruz (Discover API'de trending yok)
+          
+          // Puan filtresi varsa ve sort popüler ise, oyları da dikkate alalım (vote_count.gte=100 gibi)
+          // Şimdilik backend varsayılanları kullanıyor
+          
+          // Türleri hazırla (OR mantığı: A | B)
+          const prepareGenres = (targetType: 'movie' | 'tv') => {
+            if (filters.genres.length === 0) return null;
+            
+            // Tüm geçerli tür ID'lerini topla
+            const targetGenreIds = new Set<number>();
+            
+            // Hangi tür setiyle karşılaştıracağız?
+            const validGenres = targetType === 'movie' ? FILM_GENRES : TV_GENRES;
+            const validGenreIds = new Set(validGenres.map(g => g.id));
+            
+            filters.genres.forEach(selectedId => {
+              // Mapping'den gelen tüm ID'leri kontrol et
+              const mappedIds = GENRE_MAPPING[selectedId] || [selectedId];
+              mappedIds.forEach(mappedId => {
+                // Eğer bu ID, hedef medya türü için geçerliyse ekle
+                if (validGenreIds.has(mappedId)) {
+                  targetGenreIds.add(mappedId);
+                }
+              });
+            });
+            
+            if (targetGenreIds.size === 0) return null;
+            return Array.from(targetGenreIds).join('|'); // OR mantığı
+          };
+
+          const commonParams = {
+            sayfa: tmdbPage,
+            sortBy,
+            minYear: filters.minYear,
+            maxYear: filters.maxYear,
+            minRating: filters.minPuan,
+          };
+
           if (filter === 'movie') {
-            results = await externalApi.getTmdbPopular(tmdbPage);
+            const withGenres = prepareGenres('movie');
+            results = await externalApi.getTmdbDiscover({ ...commonParams, withGenres });
           } else if (filter === 'tv') {
-            results = await externalApi.getTmdbPopularTv(tmdbPage);
+            const withGenres = prepareGenres('tv');
+            results = await externalApi.getTmdbDiscoverTv({ ...commonParams, withGenres });
           } else {
+            // Tümü seçiliyse hem film hem dizi çek ve birleştir
             const [movies, tv] = await Promise.all([
-              externalApi.getTmdbPopular(tmdbPage),
-              externalApi.getTmdbPopularTv(tmdbPage),
+              externalApi.getTmdbDiscover({ ...commonParams, withGenres: prepareGenres('movie') }),
+              externalApi.getTmdbDiscoverTv({ ...commonParams, withGenres: prepareGenres('tv') }),
             ]);
-            results = [...movies, ...tv].sort((a, b) => (b.puan || 0) - (a.puan || 0));
-          }
-        } else if (sort === 'top_rated') {
-          if (filter === 'movie') {
-            results = await externalApi.getTmdbTopRated(tmdbPage);
-          } else if (filter === 'tv') {
-            results = await externalApi.getTmdbTopRatedTv(tmdbPage);
-          } else {
-            const [movies, tv] = await Promise.all([
-              externalApi.getTmdbTopRated(tmdbPage),
-              externalApi.getTmdbTopRatedTv(tmdbPage),
-            ]);
-            results = [...movies, ...tv].sort((a, b) => (b.puan || 0) - (a.puan || 0));
-          }
-        } else if (sort === 'trending') {
-          const mediaType = filter === 'movie' ? 'movie' : filter === 'tv' ? 'tv' : 'all';
-          results = await externalApi.getTmdbTrending(mediaType, 'week', tmdbPage);
-        } else if (sort === 'now_playing') {
-          if (filter === 'movie') {
-            results = await externalApi.getTmdbNowPlaying(tmdbPage);
-          } else if (filter === 'tv') {
-            results = await externalApi.getTmdbOnTheAir(tmdbPage);
-          } else {
-            const [movies, tv] = await Promise.all([
-              externalApi.getTmdbNowPlaying(tmdbPage),
-              externalApi.getTmdbOnTheAir(tmdbPage),
-            ]);
+            
+            // Sonuçları birleştir ve sırala
             results = [...movies, ...tv];
+            
+            // Tekrar sırala (puan veya popülerliğe göre)
+            if (sort === 'top_rated') {
+                results.sort((a, b) => (b.puan || 0) - (a.puan || 0));
+            } else if (sort === 'now_playing') {
+                results.sort((a, b) => 
+                    new Date(b.yayinTarihi || '1900').getTime() - new Date(a.yayinTarihi || '1900').getTime()
+                );
+            } else {
+                // Popülerlik (varsayılan)
+                // Not: TMDB API'den popülerlik skoru dönmüyorsa puana göre fallback
+                results.sort((a, b) => (b.puan || 0) - (a.puan || 0));
+            }
+          }
+          
+          console.log(`✅ Discover API'den ${results.length} sonuç geldi`);
+        } 
+        // ===========================================
+        // 2. STANDART LİSTELEME (POPULAR/TRENDING API)
+        // ===========================================
+        else {
+          if (sort === 'popular') {
+            if (filter === 'movie') {
+              results = await externalApi.getTmdbPopular(tmdbPage);
+            } else if (filter === 'tv') {
+              results = await externalApi.getTmdbPopularTv(tmdbPage);
+            } else {
+              const [movies, tv] = await Promise.all([
+                externalApi.getTmdbPopular(tmdbPage),
+                externalApi.getTmdbPopularTv(tmdbPage),
+              ]);
+              results = [...movies, ...tv].sort((a, b) => (b.puan || 0) - (a.puan || 0));
+            }
+          } else if (sort === 'top_rated') {
+            if (filter === 'movie') {
+              results = await externalApi.getTmdbTopRated(tmdbPage);
+            } else if (filter === 'tv') {
+              results = await externalApi.getTmdbTopRatedTv(tmdbPage);
+            } else {
+              const [movies, tv] = await Promise.all([
+                externalApi.getTmdbTopRated(tmdbPage),
+                externalApi.getTmdbTopRatedTv(tmdbPage),
+              ]);
+              results = [...movies, ...tv].sort((a, b) => (b.puan || 0) - (a.puan || 0));
+            }
+          } else if (sort === 'trending') {
+            const mediaType = filter === 'movie' ? 'movie' : filter === 'tv' ? 'tv' : 'all';
+            results = await externalApi.getTmdbTrending(mediaType, 'week', tmdbPage);
+          } else if (sort === 'now_playing') {
+            if (filter === 'movie') {
+              results = await externalApi.getTmdbNowPlaying(tmdbPage);
+            } else if (filter === 'tv') {
+              results = await externalApi.getTmdbOnTheAir(tmdbPage);
+            } else {
+              const [movies, tv] = await Promise.all([
+                externalApi.getTmdbNowPlaying(tmdbPage),
+                externalApi.getTmdbOnTheAir(tmdbPage),
+              ]);
+              results = [...movies, ...tv];
+            }
           }
         }
         
-        // Filtreleri uygula (yıl, puan ve tür)
-        if (filters.minYear || filters.maxYear || filters.minPuan || filters.genres.length > 0) {
-          // Seçilen türler için tüm eşleşen ID'leri topla (film ve dizi için)
-          const expandedGenreIds = new Set<number>();
-          filters.genres.forEach(genreId => {
-            const mappedIds = GENRE_MAPPING[genreId] || [genreId];
-            mappedIds.forEach(id => expandedGenreIds.add(id));
-          });
-          
-          results = results.filter(item => {
-            const year = item.yayinTarihi ? parseInt(item.yayinTarihi.split('-')[0]) : null;
-            if (filters.minYear && (!year || year < filters.minYear)) return false;
-            if (filters.maxYear && (!year || year > filters.maxYear)) return false;
-            // Puan filtresi: Saga puanı varsa onu kullan, yoksa TMDB puanını kullan
-            if (filters.minPuan) {
-              const effectiveRating = (item.sagaOrtalamaPuan && item.sagaOrtalamaPuan > 0) 
-                ? item.sagaOrtalamaPuan 
-                : (item.puan || 0);
-              if (effectiveRating < filters.minPuan) return false;
-            }
-            if (filters.genres.length > 0) {
-              const itemGenres = item.turIds || [];
-              // İçeriğin türlerinden herhangi biri genişletilmiş tür listesinde var mı?
-              const hasMatchingGenre = itemGenres.some(itemGenreId => expandedGenreIds.has(itemGenreId));
-              if (!hasMatchingGenre) return false;
-            }
-            return true;
-          });
-        }
+        // Client-side filtreleme (Sadece fallback olarak veya ekstra temizlik için)
+        // Artık ana filtreleme backend'de yapılıyor ama bazı özel durumlar için bırakılabilir
+        // Örneğin Saga puanı filtresini burada da uygulamak gerekebilir çünkü 
+        // Backend'deki discover sadece TMDB puanını filtreliyor olabilir (şimdilik)
+        // Ama biz backend'e minPuan gönderiyoruz ve backend bunu TMDB'ye iletiyor.
+        // Saga'ya özel puanları backend enrich ediyor.
         
         // Duplicate'leri filtrele (aynı ID + mediaType kombinasyonu)
         const existingIds = new Set(currentResults.map(r => `${r.mediaType}-${r.id}`));
@@ -1978,6 +2438,51 @@ export default function ExplorePage() {
     observer.observe(loadMoreTriggerRef.current);
     
     return () => observer.disconnect();
+  }, [activeTab]);
+
+  // Scroll ile Kitaplar için sonsuz kaydırma (fallback)
+  const bookScrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (activeTab !== 'kitaplar') return;
+
+    const handleScroll = () => {
+      const {
+        loading: isLoading,
+        bookLoadingMore: isLoadingMore,
+        bookHasMore: hasMore,
+        bookDataLoaded: dataLoaded,
+        searchQuery: query,
+        searchHasMore: searchMore
+      } = bookScrollStateRef.current;
+
+      if (isLoading || isLoadingMore) return;
+      if (bookScrollTimeoutRef.current) return;
+
+      const scrollPosition = window.innerHeight + window.scrollY;
+      const threshold = document.body.offsetHeight - 500;
+      if (scrollPosition < threshold) return;
+
+      bookScrollTimeoutRef.current = setTimeout(() => {
+        if (query.trim().length >= 2) {
+          if (searchMore) {
+            loadMoreSearchResultsRef.current();
+          }
+        } else {
+          if (hasMore && dataLoaded) {
+            setBookStartIndex(prev => prev + 40);
+          }
+        }
+        bookScrollTimeoutRef.current = null;
+      }, 300);
+    };
+
+    window.addEventListener('scroll', handleScroll);
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+      if (bookScrollTimeoutRef.current) {
+        clearTimeout(bookScrollTimeoutRef.current);
+      }
+    };
   }, [activeTab]);
 
   // Horizontal slider infinite scroll handler
@@ -2163,22 +2668,7 @@ export default function ExplorePage() {
         // ============================================
         // Resmi, açıklaması veya yazarı olmayan "çöp" kitapları filtrele
         // HTML taglarını temizle (Google Books bazen <b>, <p>, <i> döndürüyor)
-        results = results.filter((book: GoogleBook) => {
-          // Kapak resmi olmalı (posterUrl veya thumbnail)
-          const hasCover = book.posterUrl || book.thumbnail;
-          if (!hasCover) return false;
-          // Başlık olmalı
-          const title = book.baslik || book.title;
-          if (!title || title.trim().length < 2) return false;
-          // Yazar veya açıklama olmalı (en az biri)
-          const hasAuthor = (book.yazarlar && book.yazarlar.length > 0) || (book.authors && book.authors.length > 0);
-          // Açıklamayı HTML'den temizle ve kontrol et
-          const rawDescription = book.aciklama || book.description || '';
-          const cleanDescription = stripHtmlTags(rawDescription);
-          const hasDescription = cleanDescription.length > 20;
-          if (!hasAuthor && !hasDescription) return false;
-          return true;
-        });
+        results = results.filter(isBookQualityOk);
         
         // HTML taglarını tüm açıklamalardan temizle
         results = results.map((book: GoogleBook) => ({
@@ -2196,6 +2686,9 @@ export default function ExplorePage() {
           });
           console.log(`🌍 Dil filtresi (${bookLang}): ${beforeFilter} -> ${results.length} kitap`);
         }
+
+        // Kaynak/okunabilir filtreleri
+        results = applyBookSourceFilters(results, bookSource, onlyReadable);
         
         // Sonuç gelmedi veya API limiti (1000) - sonraki sorguya geç
         if (results.length === 0 || bookStartIndex >= 960) {
@@ -2369,7 +2862,7 @@ export default function ExplorePage() {
     // bookDataLoaded'ı dependency'den çıkardık çünkü infinite scroll'u engelliyordu
     // bookStartIndex veya allQueryIndex değişince her zaman yeni veri çekmeli
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, bookCategory, bookLang, searchQuery, bookStartIndex, allQueryIndex, appliedFilters.minYear, appliedFilters.maxYear, appliedFilters.minPuan]);
+  }, [activeTab, bookCategory, bookLang, bookSource, onlyReadable, searchQuery, bookStartIndex, allQueryIndex, appliedFilters.minYear, appliedFilters.maxYear, appliedFilters.minPuan]);
 
   // Arama tetikle
   useEffect(() => {
@@ -2404,6 +2897,8 @@ export default function ExplorePage() {
     // Kitap filtreleri
     if (bookLang) params.set('bookLang', bookLang);
     if (bookCategory !== 'all') params.set('bookCategory', bookCategory);
+    if (bookSource !== 'all') params.set('bookSource', bookSource);
+    if (onlyReadable) params.set('bookReadable', '1');
     
     // Yıl filtreleri
     if (appliedFilters.minYear) params.set('minYear', appliedFilters.minYear.toString());
@@ -2411,17 +2906,20 @@ export default function ExplorePage() {
     if (appliedFilters.minPuan) params.set('minPuan', appliedFilters.minPuan.toString());
     
     setSearchParams(params, { replace: true });
-  }, [searchQuery, activeTab, tmdbFilter, tmdbSort, bookLang, bookCategory, appliedFilters.minYear, appliedFilters.maxYear, appliedFilters.minPuan, setSearchParams]);
+  }, [searchQuery, activeTab, tmdbFilter, tmdbSort, bookLang, bookCategory, bookSource, onlyReadable, appliedFilters.minYear, appliedFilters.maxYear, appliedFilters.minPuan, setSearchParams]);
 
-  // İçerik import et
-  const handleImport = async (id: string, type: 'film' | 'kitap' | 'tv') => {
+  // İçerik import et - 🔧 FIX: TMDB'den gelen 'movie' ve 'film' tiplerini aynı şekilde işle
+  const handleImport = async (id: string, type: 'film' | 'kitap' | 'tv' | 'movie') => {
     setImporting(id);
     try {
       let icerik;
-      if (type === 'film') {
+      if (type === 'film' || type === 'movie') {
         icerik = await externalApi.importTmdbFilm(id);
       } else if (type === 'tv') {
         icerik = await externalApi.importTmdbTvShow(id);
+      } else if (id.startsWith('ol:')) {
+        const olid = id.substring(3);
+        icerik = await externalApi.importOpenLibraryBook(olid);
       } else {
         icerik = await externalApi.importBook(id);
       }
@@ -2469,8 +2967,74 @@ export default function ExplorePage() {
               <SlidersHorizontal size={20} />
               <span>Filtreler</span>
             </button>
+            <button
+              className={`ai-search-btn ${aiLoading ? 'loading' : ''}`}
+              onClick={handleAiSearch}
+              disabled={!searchQuery.trim() || aiLoading}
+              title="AI ile ara"
+            >
+              <Sparkles size={18} />
+              <span>{aiLoading ? 'AI Arıyor...' : 'AI Ara'}</span>
+            </button>
+            <button
+              className="ai-search-btn"
+              onClick={() => navigate('/ozet')}
+              title="Yıllık Özet"
+            >
+              <Sparkles size={18} />
+              <span>Yıllık Özet</span>
+            </button>
           </div>
         </section>
+
+        {(aiLoading || aiAnswer || aiError || aiMatches.length > 0) && (
+          <section className="ai-result-section">
+            <div className="section-header">
+              <h2 className="section-title">AI Yanıtı</h2>
+            </div>
+            {aiLoading && (
+              <div className="ai-loading">
+                <Loader2 size={20} className="animate-spin" />
+                <span>AI cevap hazırlıyor...</span>
+              </div>
+            )}
+            {!aiLoading && aiError && (
+              <div className="ai-error">{aiError}</div>
+            )}
+            {!aiLoading && aiAnswer && (
+              <p className="ai-answer">{aiAnswer}</p>
+            )}
+            {!aiLoading && aiMatches.length > 0 && (
+              <div className="ai-match-grid">
+                {aiMatches.map((match) => {
+                  const tur = normalizeContentType(match.tur);
+                  const year = match.yayinTarihi ? match.yayinTarihi.split('-')[0] : '';
+                  return (
+                    <div
+                      key={match.id}
+                      className="ai-match-card"
+                      onClick={() => navigate(`/icerik/${tur}/${match.id}`)}
+                    >
+                      {match.posterUrl ? (
+                        <img src={match.posterUrl} alt={match.baslik} />
+                      ) : (
+                        <div className="ai-match-placeholder">
+                          <Sparkles size={22} />
+                        </div>
+                      )}
+                      <div className="ai-match-info">
+                        <div className="ai-match-title">{match.baslik}</div>
+                        <div className="ai-match-meta">
+                          {match.tur}{year ? ` • ${year}` : ''}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        )}
 
         {/* Category Section */}
         <section className="category-section">
@@ -2619,7 +3183,7 @@ export default function ExplorePage() {
         {/* ========================================
            RECOMMENDATIONS - Sana Özel (Sadece giriş yapmış kullanıcılar için)
         ======================================== */}
-        {!searchQuery && !loading && activeTab === 'tmdb' && tmdbResults.length > 4 && user && (
+        {!searchQuery && !loading && activeTab === 'tmdb' && recommendedResults.length > 0 && user && (
           <section className="recommendations-section">
             <div className="rec-header">
               <div className="rec-icon">
@@ -2635,16 +3199,7 @@ export default function ExplorePage() {
               ref={recommendationsSliderRef}
               onScroll={(e) => handleHorizontalScroll(e, setRecsLoadingMore, recsLoadingMore)}
             >
-              {tmdbResults
-                .filter((film) => {
-                  // Kullanıcının zaten izlediği/kütüphanesinde olan içerikleri filtrele
-                  if (film.sagaIcerikId && userWatchedIds.has(String(film.sagaIcerikId))) {
-                    return false;
-                  }
-                  return true;
-                })
-                .slice(4)
-                .map((film) => {
+              {recommendedResults.slice(0, 40).map((film) => {
                 const mediaType = film.mediaType === 'tv' ? 'tv' : 'film';
                 const matchPercent = calculateMatchPercentage(film, userPreferences, tmdbResults);
                 const cardData = tmdbToCardData(film);
@@ -2978,6 +3533,11 @@ export default function ExplorePage() {
       bookLang={bookLang}
       bookLanguages={bookLanguages}
       onBookLangChange={handleBookLangChange}
+      bookSource={bookSource}
+      bookSources={bookSources}
+      onBookSourceChange={handleBookSourceChange}
+      onlyReadable={onlyReadable}
+      onOnlyReadableChange={handleOnlyReadableChange}
       minYear={minYear}
       maxYear={maxYear}
       minPuan={minPuan}

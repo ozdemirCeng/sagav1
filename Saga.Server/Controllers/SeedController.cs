@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Newtonsoft.Json.Linq;
 using Saga.Server.Data;   // Namespace'ine dikkat et (Data klasöründe Context olmalı)
@@ -10,6 +11,7 @@ namespace Saga.Server.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
+    [Authorize] // 🔒 GÜVENLİK: Seed işlemleri sadece authenticated kullanıcılar için
     public class SeedController : ControllerBase
     {
         private readonly SagaDbContext _context; // Context ismin SagaDbContext olmalı
@@ -45,57 +47,43 @@ namespace Saga.Server.Controllers
                 }
                 Console.WriteLine("✅ [3] Veritabanı bağlantısı BAŞARILI.");
 
-                // ADIM 2: TMDB İSTEĞİ
-                string apiKey = "eec2662a9ba4e82f840e3bdb7bbc4e48"; // Test key
-                string url = $"https://api.themoviedb.org/3/movie/popular?api_key={apiKey}&language=tr-TR&page=1";
-
-                Console.WriteLine($"⏳ [4] TMDb API'ye istek atılıyor... ({url})");
-
-                // Timeout koyalım ki sonsuza kadar beklemesin (10 saniye)
-                _httpClient.Timeout = TimeSpan.FromSeconds(10);
-                var response = await _httpClient.GetAsync(url);
-
-                if (!response.IsSuccessStatusCode)
+                // ADIM 2: TMDB İSTEĞİ - TmdbService kullanarak
+                Console.WriteLine("⏳ [4] TMDb API'den popüler filmler çekiliyor...");
+                var results = await _tmdbService.GetPopularFilmsAsync(1);
+                
+                if (results == null || !results.Any())
                 {
-                    Console.WriteLine($"❌ [HATA] TMDb cevap vermedi. Kod: {response.StatusCode}");
-                    return BadRequest($"TMDb Hatası: {response.StatusCode}");
+                    Console.WriteLine("❌ [HATA] TMDb'den veri alınamadı.");
+                    return BadRequest("TMDb'den veri alınamadı.");
                 }
-                Console.WriteLine("✅ [5] TMDb'den cevap geldi.");
+                Console.WriteLine($"✅ [5] TMDb'den {results.Count} adet film verisi alındı.");
 
                 // ADIM 3: VERİYİ İŞLEME
-                var jsonString = await response.Content.ReadAsStringAsync();
-                var json = JObject.Parse(jsonString);
-                var results = json["results"];
-                Console.WriteLine($"✅ [6] {results?.Count() ?? 0} adet film verisi ayrıştırıldı.");
+                Console.WriteLine($"✅ [6] {results.Count} adet film verisi ayrıştırıldı.");
 
                 int eklenen = 0;
-                if (results != null)
+                foreach (var filmDto in results)
                 {
-                    foreach (var item in results)
-                    {
-                        string hariciId = item["id"]?.ToString() ?? "0";
+                    string hariciId = filmDto.Id;
 
-                        // Var mı kontrolü
-                        bool varMi = await _context.Icerikler.AnyAsync(x => x.HariciId == hariciId);
-                        if (!varMi)
+                    // Var mı kontrolü
+                    bool varMi = await _context.Icerikler.AnyAsync(x => x.HariciId == hariciId);
+                    if (!varMi)
+                    {
+                        var film = new Icerik
                         {
-                            var film = new Icerik
-                            {
-                                HariciId = hariciId,
-                                ApiKaynagi = ApiKaynak.tmdb,
-                                Tur = IcerikTuru.film,
-                                Baslik = item["title"]?.ToString() ?? "Adsız",
-                                Aciklama = item["overview"]?.ToString(),
-                                PosterUrl = item["poster_path"] != null
-                                    ? $"https://image.tmdb.org/t/p/w500{item["poster_path"]}"
-                                    : null,
-                                OrtalamaPuan = (decimal)(item["vote_average"]?.ToObject<double>() ?? 0),
-                                MetaVeri = item.ToString(),
-                                OlusturulmaZamani = DateTime.UtcNow
-                            };
-                            _context.Icerikler.Add(film);
-                            eklenen++;
-                        }
+                            HariciId = hariciId,
+                            ApiKaynagi = ApiKaynak.tmdb,
+                            Tur = IcerikTuru.film,
+                            Baslik = filmDto.Baslik ?? "Adsız",
+                            Aciklama = filmDto.Aciklama,
+                            PosterUrl = filmDto.PosterUrl,
+                            OrtalamaPuan = (decimal)filmDto.Puan,
+                            MetaVeri = "{}",
+                            OlusturulmaZamani = DateTime.UtcNow
+                        };
+                        _context.Icerikler.Add(film);
+                        eklenen++;
                     }
                 }
                 Console.WriteLine($"📦 [7] {eklenen} yeni film hafızaya alındı.");

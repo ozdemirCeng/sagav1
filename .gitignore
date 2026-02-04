@@ -19,6 +19,7 @@ dist/
 
 # DotEnv
 .env
+appsettings.Development.json
 
 # OS files
 .DS_Store
@@ -30,3 +31,16 @@ Thumbs.db
 # NuGet
 *.nupkg
 project.lock.json
+
+# Build outputs
+build_output.txt
+build_error.txt
+
+# Scripts with sensitive data
+scripts/
+
+# Neon schema (contains structure info)
+neon_schema.sql
+
+# saga-semantic (separate repository)
+saga-semantic/

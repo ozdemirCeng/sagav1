@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Saga.Server.Data;
 using Saga.Server.DTOs;
 using Saga.Server.Models;
+using Saga.Server.Services;
 using System.Text.Json;
 
 namespace Saga.Server.Controllers
@@ -14,11 +15,13 @@ namespace Saga.Server.Controllers
     {
         private readonly SagaDbContext _context;
         private readonly ILogger<AktiviteController> _logger;
+        private readonly IBildirimService _bildirimService;
 
-        public AktiviteController(SagaDbContext context, ILogger<AktiviteController> logger)
+        public AktiviteController(SagaDbContext context, ILogger<AktiviteController> logger, IBildirimService bildirimService)
         {
             _context = context;
             _logger = logger;
+            _bildirimService = bildirimService;
         }
 
         // GET: api/aktivite/feed
@@ -43,13 +46,21 @@ namespace Saga.Server.Controllers
                 // Kendi ID'sini de ekle (kendi aktivitelerini de görsün)
                 takipEdilenIds.Add(currentUserId);
 
+                // 🔒 GİZLİLİK: Aktivite gizliliği açık olan kullanıcıları filtrele (kendisi hariç)
+                var gizliAktiviteKullaniciIds = await _context.KullaniciAyarlari
+                    .Where(a => a.AktiviteGizli && a.KullaniciId != currentUserId)
+                    .Select(a => a.KullaniciId)
+                    .ToListAsync();
+
                 var query = _context.Aktiviteler
                     .Include(a => a.Kullanici)
                     .Include(a => a.Icerik)
                     .Include(a => a.Puanlama)
                     .Include(a => a.Yorum)
                     .Include(a => a.Liste)
-                    .Where(a => !a.Silindi && takipEdilenIds.Contains(a.KullaniciId))
+                    .Where(a => !a.Silindi && 
+                           takipEdilenIds.Contains(a.KullaniciId) && 
+                           !gizliAktiviteKullaniciIds.Contains(a.KullaniciId))
                     .AsNoTracking();
 
                 // Aktivite türü filtresi
@@ -99,13 +110,19 @@ namespace Saga.Server.Controllers
                 Guid? currentUserId = null;
                 try { currentUserId = GetCurrentUserId(); } catch { }
                 
+                // 🔒 GİZLİLİK: Aktivite gizliliği açık olan kullanıcıları filtrele
+                var gizliAktiviteKullaniciIds = await _context.KullaniciAyarlari
+                    .Where(a => a.AktiviteGizli)
+                    .Select(a => a.KullaniciId)
+                    .ToListAsync();
+                
                 var query = _context.Aktiviteler
                     .Include(a => a.Kullanici)
                     .Include(a => a.Icerik)
                     .Include(a => a.Puanlama)
                     .Include(a => a.Yorum)
                     .Include(a => a.Liste)
-                    .Where(a => !a.Silindi)
+                    .Where(a => !a.Silindi && !gizliAktiviteKullaniciIds.Contains(a.KullaniciId))
                     .AsNoTracking();
 
                 // Aktivite türü filtresi
@@ -462,7 +479,8 @@ namespace Saga.Server.Controllers
                 // Yanıt bildirimi için üst yorum sahibine bildirim (bu trigger'da yok, manuel yapılıyor)
                 if (ustYorum != null && ustYorum.KullaniciId != currentUserId)
                 {
-                    var bildirimYanit = new Bildirim
+                    // 🔔 Kullanıcı ayarlarına göre bildirim oluştur
+                    await _bildirimService.BildirimOlusturAsync(new Bildirim
                     {
                         AliciId = ustYorum.KullaniciId,
                         GonderenId = currentUserId,
@@ -472,8 +490,7 @@ namespace Saga.Server.Controllers
                         AktiviteId = id,
                         LinkUrl = $"/aktivite/{id}",
                         OlusturulmaZamani = DateTime.UtcNow
-                    };
-                    _context.Bildirimler.Add(bildirimYanit);
+                    });
                 }
                 
                 await _context.SaveChangesAsync();
@@ -607,7 +624,8 @@ namespace Saga.Server.Controllers
                 if (yorum.KullaniciId != currentUserId)
                 {
                     var begenen = await _context.Kullanicilar.FindAsync(currentUserId);
-                    var bildirim = new Bildirim
+                    // 🔔 Kullanıcı ayarlarına göre bildirim oluştur
+                    await _bildirimService.BildirimOlusturAsync(new Bildirim
                     {
                         AliciId = yorum.KullaniciId,
                         GonderenId = currentUserId,
@@ -617,8 +635,7 @@ namespace Saga.Server.Controllers
                         AktiviteId = yorum.AktiviteId,
                         LinkUrl = $"/aktivite/{yorum.AktiviteId}",
                         OlusturulmaZamani = DateTime.UtcNow
-                    };
-                    _context.Bildirimler.Add(bildirim);
+                    });
                 }
                 
                 await _context.SaveChangesAsync();

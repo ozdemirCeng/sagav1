@@ -29,6 +29,54 @@ function formatNumber(num?: number): string {
   return num.toString();
 }
 
+function buildProviderLink(providerName: string, title: string): string | null {
+  const q = encodeURIComponent(title);
+  const key = providerName.toLowerCase().trim();
+
+  const map: Record<string, string> = {
+    'netflix': `https://www.netflix.com/search?q=${q}`,
+    'disney plus': `https://www.disneyplus.com/tr-tr/search/${q}`,
+    'disney+': `https://www.disneyplus.com/tr-tr/search/${q}`,
+    'amazon prime video': `https://www.primevideo.com/search/ref=atv_nb_sr?phrase=${q}`,
+    'prime video': `https://www.primevideo.com/search/ref=atv_nb_sr?phrase=${q}`,
+    'apple tv': `https://tv.apple.com/tr/search?term=${q}`,
+    'appletv': `https://tv.apple.com/tr/search?term=${q}`,
+    'exxen': `https://www.exxen.com/search?q=${q}`,
+    'blutv': `https://www.blutv.com/ara?q=${q}`,
+    'mubi': `https://mubi.com/tr/search?query=${q}`,
+    'gain': `https://gain.tv/arama?q=${q}`,
+    'tod': `https://www.todtv.com.tr/ara?q=${q}`,
+    'bein connect': `https://connecttr.beinsports.com/arama?q=${q}`,
+    'paramount plus': `https://www.paramountplus.com/tr/search/` + q,
+    'paramount+': `https://www.paramountplus.com/tr/search/` + q,
+    'max': `https://www.max.com/tr/tr/search?q=${q}`,
+    'hbo max': `https://www.max.com/tr/tr/search?q=${q}`,
+    'youtube': `https://www.youtube.com/results?search_query=${q}`,
+    'google play movies': `https://play.google.com/store/search?q=${q}&c=movies`,
+    'google play': `https://play.google.com/store/search?q=${q}&c=movies`,
+    'microsoft store': `https://www.microsoft.com/tr-tr/search?q=${q}`,
+    'tv+': `https://tvplus.com.tr/arama?q=${q}`,
+    'puhutv': `https://puhutv.com/arama?q=${q}`,
+    'trt izle': `https://www.trtizle.com/arama/${q}`
+  };
+
+  return map[key] ?? null;
+}
+
+function buildTmdbLink(icerik: Icerik): string | null {
+  if (icerik.apiKaynagi !== 'tmdb' || !icerik.hariciId) return null;
+
+  const rawId = icerik.hariciId;
+  const isTv = icerik.tur === 'Dizi' || rawId.startsWith('tv:');
+  const cleanId = rawId.startsWith('tv:')
+    ? rawId.slice(3)
+    : rawId.startsWith('movie:')
+      ? rawId.slice(6)
+      : rawId;
+
+  return `https://www.themoviedb.org/${isTv ? 'tv' : 'movie'}/${cleanId}`;
+}
+
 // ============================================
 // STAR RATING COMPONENT (10-star)
 // ============================================
@@ -120,6 +168,9 @@ export default function DetailPage() {
   // Library dropdown state
   const [libraryDropdownOpen, setLibraryDropdownOpen] = useState(false);
 
+  // Trailer modal state
+  const [trailerModalOpen, setTrailerModalOpen] = useState(false);
+
   // Lazy loading ref - çift yüklemeyi önle
   const isDataLoadedRef = useRef(false);
   const currentIdRef = useRef<string | undefined>(undefined);
@@ -169,7 +220,7 @@ export default function DetailPage() {
         yorumApi.getIcerikYorumlari(icerikId, { sayfaBoyutu: 20 }),
       ]);
 
-      console.log('İçerik detayları:', icerikData);
+      if (import.meta.env.DEV) console.log('İçerik detayları:', icerikData);
       setIcerik(icerikData);
       setYorumlar(yorumlarData.data);
 
@@ -721,16 +772,63 @@ export default function DetailPage() {
           {icerik.tur === 'Film' ? 'FİLM' : icerik.tur === 'Dizi' ? 'DİZİ' : 'KİTAP'}
         </div>
         
-        {/* Trailer Button - Only for films and TV shows */}
-        {(icerik.tur === 'Film' || icerik.tur === 'Dizi') && (
+        {/* Trailer Button - Only for films and TV shows with trailers */}
+        {(icerik.tur === 'Film' || icerik.tur === 'Dizi') && icerik.videos && icerik.videos.length > 0 && (
           <>
-            <button className="trailer-btn" title="Fragmanı İzle">
+            <button 
+              className="trailer-btn" 
+              title="Fragmanı İzle"
+              onClick={() => setTrailerModalOpen(true)}
+            >
               <span className="material-symbols-rounded">play_arrow</span>
             </button>
             <span className="trailer-text">Fragmanı İzle</span>
           </>
         )}
       </section>
+
+      {/* Trailer Modal */}
+      {trailerModalOpen && icerik.videos && icerik.videos.length > 0 && (
+        <div className="trailer-modal-overlay" onClick={() => setTrailerModalOpen(false)}>
+          <div className="trailer-modal" onClick={e => e.stopPropagation()}>
+            <button className="trailer-modal-close" onClick={() => setTrailerModalOpen(false)}>
+              <span className="material-symbols-rounded">close</span>
+            </button>
+            <div className="trailer-video-wrapper">
+              <iframe
+                src={`https://www.youtube.com/embed/${icerik.videos[0].key}?autoplay=1&rel=0`}
+                title={icerik.videos[0].name || 'Fragman'}
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+              />
+            </div>
+            {icerik.videos.length > 1 && (
+              <div className="trailer-thumbnails">
+                {icerik.videos.slice(0, 5).map((video, index) => (
+                  <button
+                    key={video.key}
+                    className={`trailer-thumb ${index === 0 ? 'active' : ''}`}
+                    onClick={() => {
+                      // Switch to this video
+                      const iframe = document.querySelector('.trailer-video-wrapper iframe') as HTMLIFrameElement;
+                      if (iframe) {
+                        iframe.src = `https://www.youtube.com/embed/${video.key}?autoplay=1&rel=0`;
+                      }
+                    }}
+                  >
+                    <img 
+                      src={`https://img.youtube.com/vi/${video.key}/mqdefault.jpg`} 
+                      alt={video.name || 'Fragman'} 
+                    />
+                    <span className="material-symbols-rounded">play_arrow</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
 
       {/* Main Content */}
       <main className="detail-main-content">
@@ -1005,8 +1103,8 @@ export default function DetailPage() {
             {/* Genres */}
             {icerik.turler && icerik.turler.length > 0 && (
               <div className="genres">
-                {icerik.turler.map((tur, index) => (
-                  <span key={index} className="genre-tag">{tur}</span>
+                {icerik.turler.map((tur) => (
+                  <span key={tur} className="genre-tag">{tur}</span>
                 ))}
               </div>
             )}
@@ -1041,8 +1139,8 @@ export default function DetailPage() {
                   Oyuncu Kadrosu
                 </h3>
                 <div className="cast-scroll">
-                  {icerik.oyuncular.slice(0, 12).map((oyuncu, index) => (
-                    <div key={index} className="cast-card">
+                  {icerik.oyuncular.slice(0, 12).map((oyuncu) => (
+                    <div key={oyuncu.tmdbId || oyuncu.ad} className="cast-card">
                       {oyuncu.profilUrl ? (
                         <img src={oyuncu.profilUrl} alt={oyuncu.ad} className="cast-photo" />
                       ) : (
@@ -1399,9 +1497,9 @@ export default function DetailPage() {
                 Bağlantılar
               </h4>
               <div className="external-links">
-                {icerik.hariciId && icerik.apiKaynagi === 'tmdb' && (
+                {buildTmdbLink(icerik) && (
                   <a 
-                    href={`https://www.themoviedb.org/movie/${icerik.hariciId}`}
+                    href={buildTmdbLink(icerik) ?? undefined}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="external-link link-tmdb"
@@ -1439,7 +1537,19 @@ export default function DetailPage() {
                 {/* Google Books & Google Search - Only for books */}
                 {icerik.tur === 'Kitap' && (
                   <>
-                    {icerik.hariciId && (
+                    {icerik.okumaLinki && (
+                      <a 
+                        href={icerik.okumaLinki}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="external-link link-openlibrary"
+                      >
+                        <span className="material-symbols-rounded">menu_book</span>
+                        Oku (Kaynak)
+                        <span className="material-symbols-rounded link-icon">open_in_new</span>
+                      </a>
+                    )}
+                    {icerik.hariciId && icerik.apiKaynagi === 'google_books' && (
                       <a 
                         href={`https://books.google.com/books?id=${icerik.hariciId}`}
                         target="_blank"
@@ -1466,59 +1576,48 @@ export default function DetailPage() {
               </div>
             </div>
 
-            {/* Where to Watch - Only for films and TV shows */}
-            {(icerik.tur === 'Film' || icerik.tur === 'Dizi') && (
+            {/* Where to Watch - Only for films and TV shows with providers */}
+            {(icerik.tur === 'Film' || icerik.tur === 'Dizi') && icerik.watchProviders && icerik.watchProviders.length > 0 && (
               <div className="sidebar-card">
                 <h4 className="sidebar-title">
                   <span className="material-symbols-rounded">live_tv</span>
                   Nereden İzlenir?
                 </h4>
                 <div className="providers-list">
-                  <a 
-                    href={`https://www.netflix.com/search?q=${encodeURIComponent(icerik.baslik)}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="provider-badge"
-                  >
-                    <img src="https://image.tmdb.org/t/p/original/pbpMk2JmcoNnQwx5JGpXngfoWtp.jpg" alt="Netflix" />
-                    Netflix
-                  </a>
-                  <a 
-                    href={`https://www.primevideo.com/search?phrase=${encodeURIComponent(icerik.baslik)}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="provider-badge"
-                  >
-                    <img src="https://image.tmdb.org/t/p/original/emthp39XA2YScoYL1p0sdbAH2WA.jpg" alt="Amazon Prime Video" />
-                    Prime Video
-                  </a>
-                  <a 
-                    href={`https://www.disneyplus.com/search?q=${encodeURIComponent(icerik.baslik)}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="provider-badge"
-                  >
-                    <img src="https://image.tmdb.org/t/p/original/7rwgEs15tFwyR9NPQ5vpzxTj19Q.jpg" alt="Disney+" />
-                    Disney+
-                  </a>
-                  <a 
-                    href={`https://tv.apple.com/search?term=${encodeURIComponent(icerik.baslik)}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="provider-badge"
-                  >
-                    <img src="https://image.tmdb.org/t/p/original/9ghgSC0MA082EL6HLCW3GalykFD.jpg" alt="Apple TV+" />
-                    Apple TV
-                  </a>
-                  <a 
-                    href={`https://www.justwatch.com/tr/search?q=${encodeURIComponent(icerik.baslik)}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="provider-badge provider-all"
-                  >
-                    <span className="material-symbols-rounded">search</span>
-                    Tümünde Ara
-                  </a>
+                  {icerik.watchProviders.slice(0, 6).map((provider) => {
+                    const providerUrl = provider.link || buildProviderLink(provider.providerName, icerik.baslik);
+
+                    return providerUrl ? (
+                      <a 
+                        key={provider.providerId} 
+                        href={providerUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="provider-badge"
+                        title={`${provider.providerName}'da izle`}
+                      >
+                        {provider.logoUrl ? (
+                          <img src={provider.logoUrl} alt={provider.providerName} />
+                        ) : (
+                          <span className="provider-name-text">{provider.providerName}</span>
+                        )}
+                        <span className="provider-label">{provider.providerName}</span>
+                      </a>
+                    ) : (
+                      <div
+                        key={provider.providerId}
+                        className="provider-badge"
+                        title={`${provider.providerName} için direkt bağlantı yok`}
+                      >
+                        {provider.logoUrl ? (
+                          <img src={provider.logoUrl} alt={provider.providerName} />
+                        ) : (
+                          <span className="provider-name-text">{provider.providerName}</span>
+                        )}
+                        <span className="provider-label">{provider.providerName}</span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}

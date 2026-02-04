@@ -74,6 +74,8 @@ Saga, kullanıcıların kişisel film ve kitap kütüphanelerini oluşturabildi�
 | Google Books API | Kitap verileri |
 | Supabase Auth | Kimlik doğrulama |
 | Supabase Storage | Dosya depolama (avatarlar) |
+| Groq API | AI metin üretimi |
+| HuggingFace Spaces | Semantic search (saga-semantic) |
 
 ## 🚀 Kurulum
 
@@ -85,6 +87,7 @@ Saga, kullanıcıların kişisel film ve kitap kütüphanelerini oluşturabildi�
 ### Frontend Kurulumu
 ```bash
 cd saga.client
+cp .env.example .env  # .env dosyasını oluştur ve düzenle
 npm install
 npm run dev
 ```
@@ -92,32 +95,29 @@ npm run dev
 ### Backend Kurulumu
 ```bash
 cd Saga.Server
+# appsettings.Development.json dosyasını oluştur ve düzenle
 dotnet restore
 dotnet run
+```
+
+### AI Servisi (HuggingFace Spaces)
+```bash
+cd saga-semantic
+# HuggingFace Spaces'e deploy et
+# Secrets'ta GROQ_API_KEY ayarla
 ```
 
 ### Ortam Değişkenleri
 
 **Frontend** (`saga.client/.env`):
 ```env
-VITE_API_URL=http://localhost:5054/api
-VITE_SUPABASE_URL=your_supabase_url
-VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your-supabase-anon-key
+VITE_API_URL=https://your-backend-url.com/api  # Production için
 ```
 
-**Backend** (`Saga.Server/appsettings.json`):
-```json
-{
-  "ConnectionStrings": {
-    "DefaultConnection": "your_postgresql_connection_string"
-  },
-  "Jwt": {
-    "Secret": "your_supabase_jwt_secret"
-  },
-  "TmdbApiKey": "your_tmdb_api_key",
-  "GoogleBooksApiKey": "your_google_books_api_key"
-}
-```
+**Backend** (`Saga.Server/appsettings.Development.json`):
+Tüm yapılandırma seçenekleri için `.env.example` dosyasına bakın.
 
 ## 📸 Ekran Görüntüleri
 
@@ -157,13 +157,16 @@ Saga/
 │   │   └── styles/             # Global stiller
 │   └── public/                 # Statik dosyalar
 │
-└── Saga.Server/                # ASP.NET Core Backend
-    ├── Controllers/            # API endpoint'leri
-    ├── Models/                 # Veritabanı modelleri
-    ├── DTOs/                   # Data Transfer Objects
-    ├── Services/               # İş mantığı servisleri
-    ├── Data/                   # DbContext
-    └── Migrations/             # EF Core migration'ları
+├── Saga.Server/                # ASP.NET Core Backend
+│   ├── Controllers/            # API endpoint'leri
+│   ├── Models/                 # Veritabanı modelleri
+│   ├── DTOs/                   # Data Transfer Objects
+│   ├── Services/               # İş mantığı servisleri
+│   ├── Data/                   # DbContext
+│   └── Migrations/             # EF Core migration'ları
+│
+└── saga-semantic/              # AI Microservice (HuggingFace)
+    └── app.py                  # FastAPI + Groq + Semantic Search
 ```
 
 ## 🎨 Tasarım

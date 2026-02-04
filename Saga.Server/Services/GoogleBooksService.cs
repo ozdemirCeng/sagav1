@@ -286,7 +286,8 @@ namespace Saga.Server.Services
                     kategoriler = bookDto.Kategoriler,
                     yayinevi = bookDto.Yayinevi,
                     isbn = bookDto.ISBN,
-                    dil = bookDto.Dil
+                    dil = bookDto.Dil,
+                    okumaLinki = bookDto.OkumaLinki
                 };
 
                 // Veritabanına kaydet
@@ -336,7 +337,9 @@ namespace Saga.Server.Services
                     Aciklama = volumeInfo.TryGetProperty("description", out var desc) ? StripHtmlTags(desc.GetString()) : null,
                     YayinTarihi = volumeInfo.TryGetProperty("publishedDate", out var date) ? date.GetString() : null,
                     Dil = volumeInfo.TryGetProperty("language", out var lang) ? lang.GetString() : null,
-                    SayfaSayisi = volumeInfo.TryGetProperty("pageCount", out var pages) ? pages.GetInt32() : null
+                    SayfaSayisi = volumeInfo.TryGetProperty("pageCount", out var pages) ? pages.GetInt32() : null,
+                    OkumaLinki = volumeInfo.TryGetProperty("previewLink", out var preview) ? preview.GetString() : null,
+                    Kaynak = "google_books"
                 };
 
                 // Authors
@@ -468,40 +471,43 @@ namespace Saga.Server.Services
                 
                 string? turkceAciklama = null;
                 string? digerAciklama = null;
+
+                void ProcessResults(GoogleBooksSearchResult searchResult)
+                {
+                    if (searchResult.Items == null) return;
+
+                    var normalizedTitle = NormalizeTitle(title);
+                    var booksWithDescription = searchResult.Items
+                        .Where(b => !string.IsNullOrEmpty(b.Aciklama))
+                        .Where(b => NormalizeTitle(b.Baslik).Contains(normalizedTitle) ||
+                                    normalizedTitle.Contains(NormalizeTitle(b.Baslik)))
+                        .ToList();
+
+                    foreach (var book in booksWithDescription)
+                    {
+                        if (ContainsTurkishChars(book.Aciklama!))
+                        {
+                            turkceAciklama = book.Aciklama;
+                            _logger.LogInformation("📖 Türkçe açıklama bulundu: {Title} -> {FoundTitle}",
+                                title, book.Baslik);
+                            break;
+                        }
+                        else if (digerAciklama == null)
+                        {
+                            digerAciklama = book.Aciklama;
+                        }
+                    }
+                }
                 
                 foreach (var searchQuery in searchQueries)
                 {
+                    var searchResultTr = await SearchBooksAsync(searchQuery, maxResults: 15, langRestrict: "tr");
+                    ProcessResults(searchResultTr);
+                    if (turkceAciklama != null) break;
+
                     var searchResult = await SearchBooksAsync(searchQuery, maxResults: 15);
-                    
-                    if (searchResult.Items != null)
-                    {
-                        // Başlığı benzer olan ve açıklaması olan kitapları bul
-                        var normalizedTitle = NormalizeTitle(title);
-                        
-                        var booksWithDescription = searchResult.Items
-                            .Where(b => !string.IsNullOrEmpty(b.Aciklama))
-                            .Where(b => NormalizeTitle(b.Baslik).Contains(normalizedTitle) || 
-                                        normalizedTitle.Contains(NormalizeTitle(b.Baslik)))
-                            .ToList();
-                        
-                        foreach (var book in booksWithDescription)
-                        {
-                            // Türkçe karakter içeren açıklamayı tercih et
-                            if (ContainsTurkishChars(book.Aciklama!))
-                            {
-                                turkceAciklama = book.Aciklama;
-                                _logger.LogInformation("📖 Türkçe açıklama bulundu: {Title} -> {FoundTitle}", 
-                                    title, book.Baslik);
-                                break;
-                            }
-                            else if (digerAciklama == null)
-                            {
-                                digerAciklama = book.Aciklama;
-                            }
-                        }
-                        
-                        if (turkceAciklama != null) break;
-                    }
+                    ProcessResults(searchResult);
+                    if (turkceAciklama != null) break;
                 }
                 
                 // Türkçe açıklama varsa onu, yoksa diğer dildeki açıklamayı döndür

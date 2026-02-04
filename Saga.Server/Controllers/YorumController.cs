@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Saga.Server.Data;
 using Saga.Server.DTOs;
 using Saga.Server.Models;
+using Saga.Server.Services;
 
 namespace Saga.Server.Controllers
 {
@@ -13,11 +14,13 @@ namespace Saga.Server.Controllers
     {
         private readonly SagaDbContext _context;
         private readonly ILogger<YorumController> _logger;
+        private readonly IBildirimService _bildirimService;
 
-        public YorumController(SagaDbContext context, ILogger<YorumController> logger)
+        public YorumController(SagaDbContext context, ILogger<YorumController> logger, IBildirimService bildirimService)
         {
             _context = context;
             _logger = logger;
+            _bildirimService = bildirimService;
         }
 
         // POST: api/yorum
@@ -58,7 +61,8 @@ namespace Saga.Server.Controllers
                     
                     if (ustYorum != null && ustYorum.KullaniciId != kullaniciId)
                     {
-                        var bildirim = new Bildirim
+                        // 🔔 Kullanıcı ayarlarına göre bildirim oluştur
+                        await _bildirimService.BildirimOlusturAsync(new Bildirim
                         {
                             AliciId = ustYorum.KullaniciId,
                             GonderenId = kullaniciId,
@@ -69,9 +73,7 @@ namespace Saga.Server.Controllers
                             YorumId = yorum.Id,
                             LinkUrl = $"/icerik/{dto.IcerikId}",
                             OlusturulmaZamani = DateTime.UtcNow
-                        };
-                        _context.Bildirimler.Add(bildirim);
-                        await _context.SaveChangesAsync();
+                        });
                     }
                 }
 
@@ -356,11 +358,11 @@ namespace Saga.Server.Controllers
                     };
                     _context.YorumBegenileri.Add(begeni);
                     
-                    // Bildirim oluştur (kendi yorumunu beğendiyse hariç)
+                    // 🔔 Kullanıcı ayarlarına göre bildirim oluştur (kendi yorumunu beğendiyse hariç)
                     if (yorum.KullaniciId != kullaniciId)
                     {
                         var begenen = await _context.Kullanicilar.FindAsync(kullaniciId);
-                        var bildirim = new Bildirim
+                        await _bildirimService.BildirimOlusturAsync(new Bildirim
                         {
                             AliciId = yorum.KullaniciId,
                             GonderenId = kullaniciId,
@@ -371,8 +373,7 @@ namespace Saga.Server.Controllers
                             YorumId = yorum.Id,
                             LinkUrl = $"/icerik/{yorum.IcerikId}",
                             OlusturulmaZamani = DateTime.UtcNow
-                        };
-                        _context.Bildirimler.Add(bildirim);
+                        });
                     }
                     
                     await _context.SaveChangesAsync();

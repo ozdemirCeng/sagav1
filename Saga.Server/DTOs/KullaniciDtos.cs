@@ -23,6 +23,9 @@ namespace Saga.Server.DTOs
         
         // Mevcut kullanıcı bu kullanıcıyı takip ediyor mu?
         public bool TakipEdiyorMu { get; set; }
+        
+        // 🔒 Gizlilik: Profil gizli mi?
+        public bool ProfilGizli { get; set; }
     }
 
     // Profil güncelleme

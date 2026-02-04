@@ -62,6 +62,31 @@ namespace Saga.Server.DTOs
         public string? Yayinevi { get; set; }
         public string? ISBN { get; set; }
         public List<string>? Kategoriler { get; set; }
+        public string? OkumaLinki { get; set; }
+        
+        // Fragman ve izleme platformları (TMDB'den çekilir)
+        public List<VideoInfoDto>? Videos { get; set; }
+        public List<WatchProviderInfoDto>? WatchProviders { get; set; }
+    }
+    
+    // Video DTO (fragman bilgisi)
+    public class VideoInfoDto
+    {
+        public string Key { get; set; } = null!; // YouTube video ID
+        public string Site { get; set; } = "YouTube";
+        public string Type { get; set; } = "Trailer";
+        public string? Name { get; set; }
+        public bool Official { get; set; } = true;
+    }
+    
+    // İzleme platformu DTO
+    public class WatchProviderInfoDto
+    {
+        public int ProviderId { get; set; }
+        public string ProviderName { get; set; } = null!;
+        public string? LogoUrl { get; set; }
+        public string Type { get; set; } = "flatrate";
+        public string? Link { get; set; } // JustWatch linki
     }
     
     // Oyuncu bilgisi DTO (içerik detayında kullanılır)

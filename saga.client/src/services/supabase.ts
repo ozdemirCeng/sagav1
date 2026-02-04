@@ -10,9 +10,11 @@ if (!supabaseUrl || !supabaseAnonKey) {
     throw new Error('Supabase URL veya Anon Key eksik! .env dosyasını kontrol et.');
 }
 
-console.log("✅ Supabase başlatıldı:");
-console.log("URL:", supabaseUrl);
-console.log("KEY başlangıcı:", supabaseAnonKey.substring(0, 20) + "...");
+if (import.meta.env.DEV) {
+    console.log("✅ Supabase başlatıldı:");
+    console.log("URL:", supabaseUrl);
+    console.log("KEY başlangıcı:", supabaseAnonKey.substring(0, 20) + "...");
+}
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     auth: {

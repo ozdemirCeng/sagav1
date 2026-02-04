@@ -108,7 +108,7 @@ const ShieldIcon = () => (
 // ============================================
 // TYPES
 // ============================================
-type SettingsTab = 'main' | 'profil' | 'bildirimler' | 'gizlilik';
+type SettingsTab = 'main' | 'profil' | 'bildirimler' | 'gizlilik' | 'destek';
 
 // ============================================
 // MAIN COMPONENT
@@ -467,7 +467,7 @@ export default function SettingsPage() {
 
         {/* Group 3: Support & Logout */}
         <div className="settings-group">
-          <div className="settings-item" onClick={() => alert('Yardım & Destek yakında!')}>
+          <div className="settings-item" onClick={() => setActiveTab('destek')}>
             <div className="settings-icon">
               <HelpIcon />
             </div>
@@ -732,6 +732,62 @@ export default function SettingsPage() {
     </>
   );
 
+  const renderSupportTab = () => (
+    <>
+      <div className="settings-tab-header">
+        <button className="settings-back-btn" onClick={() => setActiveTab('main')}>
+          <ChevronLeftIcon />
+        </button>
+        <h1 className="settings-tab-title">Yardım & Destek</h1>
+        <div className="settings-tab-spacer" />
+      </div>
+
+      <div className="settings-tab-content">
+        <div className="settings-groups">
+          <div className="settings-group">
+            <div className="settings-item" onClick={() => window.open('https://wa.me/905051712419', '_blank')}>
+              <div className="settings-icon green">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+                </svg>
+              </div>
+              <div className="settings-item-content">
+                <div className="settings-label">WhatsApp Destek</div>
+                <div className="settings-desc">0505 171 24 19</div>
+              </div>
+              <span className="settings-arrow">
+                <ChevronRightIcon />
+              </span>
+            </div>
+
+            <div className="settings-item" onClick={() => window.location.href = 'mailto:ozdmromer24@gmail.com'}>
+              <div className="settings-icon blue">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+                  <polyline points="22,6 12,13 2,6" />
+                </svg>
+              </div>
+              <div className="settings-item-content">
+                <div className="settings-label">E-posta Gönder</div>
+                <div className="settings-desc">ozdmromer24@gmail.com</div>
+              </div>
+              <span className="settings-arrow">
+                <ChevronRightIcon />
+              </span>
+            </div>
+          </div>
+
+          <div className="settings-group">
+            <div className="support-info">
+              <p>Her türlü soru, öneri ve şikayetiniz için bize ulaşabilirsiniz.</p>
+              <p>Çalışma saatleri: 09:00 - 18:00</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+
   return (
     <div className="settings-page">
       <main className="settings-content">
@@ -739,6 +795,7 @@ export default function SettingsPage() {
         {activeTab === 'profil' && renderProfilTab()}
         {activeTab === 'bildirimler' && renderBildirimlerTab()}
         {activeTab === 'gizlilik' && renderGizlilikTab()}
+        {activeTab === 'destek' && renderSupportTab()}
       </main>
 
       {/* Logout Modal */}

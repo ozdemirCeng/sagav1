@@ -35,3 +35,6 @@ export {
   NotificationSkeleton,
   NotificationsSkeleton,
 } from './Skeletons';
+
+// AI Chat Component
+export { AiChat, default as AiChatDefault } from './AiChat';

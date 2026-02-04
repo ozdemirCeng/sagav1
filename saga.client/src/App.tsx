@@ -6,6 +6,7 @@ import '@mantine/core/styles.css';
 import { AuthProvider, AuthModalProvider } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { VoidLayout } from './components/layout';
+import { AiChat } from './components/ui';
 import LoginPage from './pages/glass/LoginPage';
 import RegisterPage from './pages/glass/RegisterPage';
 import ForgotPasswordPage from './pages/glass/ForgotPasswordPage';
@@ -18,6 +19,7 @@ import SettingsPage from './pages/glass/SettingsPage';
 import LibraryPage from './pages/glass/LibraryPage';
 import ListEditPage from './pages/glass/ListEditPage';
 import NotificationsPage from './pages/glass/NotificationsPage';
+import YearlySummaryPage from './pages/glass/YearlySummaryPage';
 
 // Client örneğini oluştur (Cache ayarlarıyla)
 const queryClient = new QueryClient({
@@ -53,6 +55,8 @@ function App() {
                                         <Route path="/kesfet" element={<ExplorePage />} />
                                         <Route path="/ayarlar" element={<SettingsPage />} />
                                         <Route path="/kutuphane" element={<LibraryPage />} />
+                                        <Route path="/ozet" element={<YearlySummaryPage />} />
+                                        <Route path="/ozet/:year" element={<YearlySummaryPage />} />
                                         <Route path="/liste/:id/duzenle" element={<ListEditPage />} />
                                         <Route path="/icerik/:tip/:id" element={<DetailPage />} />
                                         <Route path="/icerik/:id" element={<DetailPage />} />
@@ -61,6 +65,8 @@ function App() {
                                     {/* Fallback */}
                                     <Route path="*" element={<Navigate to="/" replace />} />
                                 </Routes>
+                                {/* Global AI Chat Button */}
+                                <AiChat />
                             </AuthModalProvider>
                         </BrowserRouter>
                     </AuthProvider>
